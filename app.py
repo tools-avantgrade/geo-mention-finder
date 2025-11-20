@@ -305,7 +305,7 @@ E così via per tutti i 10 suggerimenti."""
             max_output_tokens=2048,
         )
         
-        # Safety settings corretti (FORMATO CORRETTO)
+        # Safety settings corretti
         safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -373,25 +373,35 @@ if st.session_state.show_results and st.session_state.results:
     else:
         st.markdown("### 📊 Risultati dell'Analisi")
         
-        # Split dei risultati (mostra solo i primi 5)
+        # Split dei risultati - LOGICA MIGLIORATA per mostrare 5 risultati COMPLETI
         full_results = st.session_state.results
-        
-        # Tenta di dividere per punti numerati
         results_lines = full_results.split('\n')
+        
         display_lines = []
         count = 0
+        in_result = False
         
-        for line in results_lines:
-            display_lines.append(line)
-            # Conta quante voci numerate troviamo
+        for i, line in enumerate(results_lines):
+            # Rileva l'inizio di un nuovo risultato numerato
             if line.strip() and len(line.strip()) > 0:
                 first_chars = line.strip()[:3]
+                # Controlla se inizia con un numero seguito da un punto
                 if any(char.isdigit() for char in first_chars) and '.' in first_chars:
                     count += 1
-                    if count >= 5:
+                    in_result = True
+                    
+                    # Se abbiamo già 5 risultati completi, fermiamoci
+                    if count > 5:
                         break
+            
+            # Aggiungi la linea se siamo dentro i primi 5 risultati
+            if count <= 5:
+                display_lines.append(line)
+            elif count == 6:
+                # Appena inizia il 6° risultato, fermiamoci
+                break
         
-        # Mostra i primi 5 risultati
+        # Mostra i primi 5 risultati COMPLETI
         preview_text = '\n'.join(display_lines)
         
         st.markdown(f"""
@@ -400,12 +410,12 @@ if st.session_state.show_results and st.session_state.results:
             </div>
         """, unsafe_allow_html=True)
         
-        # CTA Box
+        # CTA Box con testo corretto
         st.markdown("""
             <div class="cta-box">
                 <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
-                <h3>Vuoi scoprire tutti gli altri siti e canali strategici?</h3>
-                <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
+                <h3>Vuoi scoprire gli altri 5 siti e canali strategici?</h3>
+                <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
                 <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
                         <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
