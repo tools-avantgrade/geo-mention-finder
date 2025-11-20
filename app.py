@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
+import re
 
 # Configurazione pagina
 st.set_page_config(
@@ -100,8 +101,8 @@ st.markdown("""
     .result-item {
         background: #f8f9fa;
         border-left: 4px solid #667eea;
-        padding: 1rem;
-        margin-bottom: 1rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
         border-radius: 8px;
     }
     
@@ -109,13 +110,37 @@ st.markdown("""
         color: #667eea;
         margin-top: 0;
         margin-bottom: 0.5rem;
-        font-size: 1.1rem;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+    
+    .result-item .site-link {
+        color: #667eea;
+        text-decoration: none;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .result-item .site-link:hover {
+        color: #764ba2;
+        text-decoration: underline;
+    }
+    
+    .result-item .type-badge {
+        display: inline-block;
+        background: #e3f2fd;
+        color: #1976d2;
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
     }
     
     .result-item p {
-        margin: 0;
+        margin: 0.75rem 0 0 0;
         color: #555;
-        line-height: 1.6;
+        line-height: 1.7;
     }
     
     /* CTA Box */
@@ -213,7 +238,7 @@ st.markdown("""
 # Info box
 st.markdown("""
     <div class="info-box">
-        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 5 principali siti informativi e canali dove dovresti essere presente.</p>
+        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -272,7 +297,7 @@ def get_gemini_suggestions(mercato, ambito, lingua):
             error_details = "\n".join(errors[:3])
             return f"❌ Errore: Nessun modello Gemini disponibile. Verifica la tua API key su https://aistudio.google.com/app/apikey\n\nDettagli:\n{error_details}"
         
-        # Crea il prompt
+        # Crea il prompt - AGGIORNATO per includere URL
         prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
 
 Un'azienda opera nel settore: {mercato}
@@ -285,24 +310,28 @@ Identifica i 10 siti web informativi, portali di settore, blog specializzati e c
 IMPORTANTE: 
 - Escludi siti istituzionali (.gov, .edu)
 - Concentrati su: portali informativi di settore, magazine online, blog specializzati, testate giornalistiche di settore, canali YouTube autorevoli
-- Per ogni fonte fornisci: nome, tipologia (sito/blog/canale YouTube), e una breve spiegazione (2-3 righe) del perché è importante per la visibilità su Gemini
+- Per ogni fonte fornisci: nome, URL completo (https://...), tipologia (sito/blog/canale YouTube), e una breve spiegazione (2-3 righe) del perché è importante per la visibilità su Gemini
 
-Formatta la risposta così:
+Formatta la risposta ESATTAMENTE così:
 
 1. [Nome] - [Tipologia]
+URL: [URL completo del sito]
 [Spiegazione dettagliata del perché questo canale è cruciale per la visibilità su Gemini, quali contenuti pubblicano, che autorevolezza hanno nel settore]
 
 2. [Nome] - [Tipologia]
+URL: [URL completo del sito]
 [Spiegazione dettagliata...]
 
-E così via per tutti i 10 suggerimenti."""
+E così via per tutti i 10 suggerimenti.
+
+IMPORTANTE: Includi SEMPRE l'URL completo (con https://) per ogni sito/canale."""
 
         # Configurazione di generazione
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
             top_p=0.95,
             top_k=40,
-            max_output_tokens=2048,
+            max_output_tokens=3000,
         )
         
         # Safety settings corretti
@@ -349,6 +378,82 @@ E così via per tutti i 10 suggerimenti."""
         else:
             return f"❌ Errore imprevisto: {error_message}\n\nSe il problema persiste, crea una nuova API key su: https://aistudio.google.com/app/apikey"
 
+# Funzione per parsare e formattare i risultati con link
+def format_results_with_links(text):
+    """Parsa i risultati e crea HTML con link cliccabili"""
+    lines = text.split('\n')
+    html_output = []
+    current_result = {}
+    result_number = 0
+    
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Rileva inizio di un nuovo risultato (numero seguito da punto)
+        if line and len(line) > 0:
+            match = re.match(r'^(\d+)\.\s*(.+?)\s*-\s*(.+)$', line)
+            if match:
+                # Se c'è un risultato precedente, salvalo
+                if current_result:
+                    html_output.append(format_single_result(current_result))
+                
+                result_number = int(match.group(1))
+                current_result = {
+                    'number': result_number,
+                    'name': match.group(2).strip(),
+                    'type': match.group(3).strip(),
+                    'url': '',
+                    'description': []
+                }
+                i += 1
+                continue
+        
+        # Cerca URL
+        if line.startswith('URL:') or line.startswith('url:'):
+            url = line.split(':', 1)[1].strip()
+            if current_result:
+                current_result['url'] = url
+            i += 1
+            continue
+        
+        # Aggiungi alla descrizione se non è vuota e siamo in un risultato
+        if line and current_result and not line.startswith(('http://', 'https://')):
+            # Salta se è l'inizio di un nuovo risultato
+            if not re.match(r'^\d+\.', line):
+                current_result['description'].append(line)
+        
+        i += 1
+    
+    # Aggiungi l'ultimo risultato
+    if current_result:
+        html_output.append(format_single_result(current_result))
+    
+    return ''.join(html_output)
+
+def format_single_result(result):
+    """Formatta un singolo risultato come HTML"""
+    name = result.get('name', '')
+    type_badge = result.get('type', '')
+    url = result.get('url', '')
+    description = ' '.join(result.get('description', []))
+    number = result.get('number', 0)
+    
+    # Se non c'è URL, prova a crearne uno di ricerca Google
+    if not url or not url.startswith('http'):
+        url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
+    
+    html = f"""
+    <div class="result-item">
+        <h4>
+            {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
+            <span class="type-badge">{type_badge}</span>
+        </h4>
+        <p>{description}</p>
+    </div>
+    """
+    return html
+
 # Processo di analisi
 if analyze_button:
     if not mercato or not ambito or not lingua:
@@ -371,46 +476,39 @@ if st.session_state.show_results and st.session_state.results:
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.markdown("### 📊 Risultati dell'Analisi")
+        st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
         
-        # Split dei risultati - LOGICA MIGLIORATA per mostrare 5 risultati COMPLETI
+        # Split dei risultati - mostra primi 5 COMPLETI
         full_results = st.session_state.results
         results_lines = full_results.split('\n')
         
         display_lines = []
         count = 0
-        in_result = False
         
         for i, line in enumerate(results_lines):
             # Rileva l'inizio di un nuovo risultato numerato
             if line.strip() and len(line.strip()) > 0:
                 first_chars = line.strip()[:3]
-                # Controlla se inizia con un numero seguito da un punto
                 if any(char.isdigit() for char in first_chars) and '.' in first_chars:
                     count += 1
-                    in_result = True
-                    
-                    # Se abbiamo già 5 risultati completi, fermiamoci
                     if count > 5:
                         break
             
             # Aggiungi la linea se siamo dentro i primi 5 risultati
             if count <= 5:
                 display_lines.append(line)
-            elif count == 6:
-                # Appena inizia il 6° risultato, fermiamoci
-                break
         
-        # Mostra i primi 5 risultati COMPLETI
+        # Mostra i primi 5 risultati con link
         preview_text = '\n'.join(display_lines)
+        formatted_html = format_results_with_links(preview_text)
         
         st.markdown(f"""
             <div class="results-container">
-                <div style="white-space: pre-wrap;">{preview_text}</div>
+                {formatted_html}
             </div>
         """, unsafe_allow_html=True)
         
-        # CTA Box con testo corretto
+        # CTA Box
         st.markdown("""
             <div class="cta-box">
                 <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
