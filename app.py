@@ -242,32 +242,30 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         # Configura Gemini con la API key dai secrets
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Lista dei modelli da provare in ordine di preferenza (dal più economico al più costoso)
+        # Lista dei modelli da provare in ordine (AGGIORNATA con nomi corretti)
         models_to_try = [
-            'gemini-1.5-flash-latest',
             'gemini-1.5-flash',
-            'gemini-1.5-flash-001',
-            'gemini-pro',
-            'gemini-1.0-pro'
+            'gemini-1.5-pro',
+            'gemini-pro'
         ]
         
         model = None
+        working_model_name = None
         last_error = None
         
         # Prova ogni modello fino a trovarne uno che funziona
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)
-                # Test veloce per vedere se il modello funziona
-                test_response = model.generate_content("Test")
-                if test_response:
-                    break
+                working_model_name = model_name
+                # Non facciamo più il test, andiamo direttamente alla generazione
+                break
             except Exception as e:
                 last_error = str(e)
                 continue
         
         if model is None:
-            return f"❌ Errore: Nessun modello Gemini disponibile. Ultimo errore: {last_error}"
+            return f"❌ Errore: Impossibile inizializzare il modello Gemini. Ultimo errore: {last_error}"
         
         # Crea il prompt
         prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
@@ -297,8 +295,11 @@ E così via per tutti i 10 suggerimenti."""
         # Genera la risposta
         response = model.generate_content(prompt)
         
-        if response and response.text:
+        if response and hasattr(response, 'text') and response.text:
             return response.text
+        elif response and hasattr(response, 'parts'):
+            # A volte la risposta è in parts
+            return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
         else:
             return "❌ Errore: Risposta vuota dal modello Gemini"
         
@@ -306,12 +307,16 @@ E così via per tutti i 10 suggerimenti."""
         error_message = str(e)
         
         # Messaggi di errore più user-friendly
-        if "API_KEY" in error_message.upper():
+        if "API_KEY" in error_message.upper() or "api key" in error_message.lower():
             return "❌ Errore: API Key non configurata correttamente. Verifica la configurazione nei secrets di Streamlit."
-        elif "QUOTA" in error_message.upper():
+        elif "QUOTA" in error_message.upper() or "quota" in error_message.lower():
             return "❌ Errore: Quota API esaurita. Verifica il tuo account Google AI Studio."
+        elif "RATE_LIMIT" in error_message.upper() or "rate limit" in error_message.lower():
+            return "❌ Errore: Limite di richieste raggiunto. Riprova tra qualche minuto."
         elif "404" in error_message:
-            return f"❌ Errore: Modello non disponibile. Dettagli: {error_message}"
+            return f"❌ Errore: Modello non disponibile. Verifica che la tua API key abbia accesso ai modelli Gemini. Errore: {error_message}"
+        elif "PERMISSION" in error_message.upper() or "permission" in error_message.lower():
+            return "❌ Errore: Permessi API insufficienti. Verifica che la tua API key sia attiva e abbia i permessi necessari."
         else:
             return f"❌ Errore nella chiamata API: {error_message}"
 
