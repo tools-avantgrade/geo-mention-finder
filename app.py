@@ -144,6 +144,7 @@ st.markdown("""
         text-decoration: none;
         font-size: 0.9rem;
         margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
         word-break: break-all;
     }
     
@@ -249,7 +250,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Info box - CORRETTO: dice 10 siti
+# Info box
 st.markdown("""
     <div class="info-box">
         <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente.</p>
@@ -279,8 +280,9 @@ analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 # Funzione per estrarre URL dal testo
 def extract_urls_from_text(text):
     """Estrae tutti gli URL dal testo"""
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-    return re.findall(url_pattern, text)
+    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(]+'
+    urls = re.findall(url_pattern, text)
+    return urls
 
 # Funzione per parsare i risultati
 def parse_results(text):
@@ -289,10 +291,9 @@ def parse_results(text):
     lines = text.split('\n')
     current_result = None
     
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
         
         # Cerca pattern numero. Nome - Tipo
         match = re.match(r'^(\d+)\.\s*(.+?)\s*-\s*(.+)$', line)
@@ -309,63 +310,35 @@ def parse_results(text):
                 'url': '',
                 'description': []
             }
+            i += 1
             continue
         
-        # Cerca URL nella linea
+        # Se siamo in un risultato
         if current_result:
+            # Cerca URL nella linea o nelle prossime linee
             urls = extract_urls_from_text(line)
-            if urls and not current_result['url']:
-                current_result['url'] = urls[0]
+            if urls:
+                if not current_result['url']:
+                    current_result['url'] = urls[0]
+                i += 1
+                continue
             
-            # Se non contiene URL e non è vuota, è parte della descrizione
-            if not line.startswith(('http://', 'https://', 'URL:', 'url:')):
-                # Rimuovi eventuali prefissi URL:
-                cleaned_line = re.sub(r'^(URL:|url:)\s*', '', line)
-                if cleaned_line and not cleaned_line.startswith('http'):
-                    current_result['description'].append(cleaned_line)
+            # Salta linee vuote
+            if not line:
+                i += 1
+                continue
+            
+            # Aggiungi alla descrizione
+            if not re.match(r'^\d+\.', line):
+                current_result['description'].append(line)
+        
+        i += 1
     
     # Aggiungi l'ultimo risultato
     if current_result:
         results.append(current_result)
     
     return results
-
-# Funzione per formattare un singolo risultato come HTML
-def format_result_html(result):
-    """Formatta un singolo risultato come HTML con link"""
-    number = result['number']
-    name = result['name']
-    type_badge = result['type']
-    url = result['url']
-    description = ' '.join(result['description'])
-    
-    # Se non c'è URL, cerca di crearne uno
-    if not url:
-        # Cerca di estrarre un possibile dominio dal nome
-        name_lower = name.lower()
-        if 'sole 24 ore' in name_lower or 'ilsole24ore' in name_lower:
-            url = 'https://www.ilsole24ore.com'
-        elif 'trasporto europa' in name_lower:
-            url = 'https://www.trasportoeuropa.it'
-        elif 'supply chain italy' in name_lower:
-            url = 'https://www.supplychainitaly.it'
-        elif 'industry 4.0' in name_lower or 'industry4.0' in name_lower:
-            url = 'https://www.industry4business.it'
-        else:
-            # Fallback: ricerca Google
-            url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
-    
-    html = f"""
-    <div class="result-item">
-        <h4>
-            {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
-            <span class="type-badge">{type_badge}</span>
-        </h4>
-        <a href="{url}" target="_blank" class="url-link">🔗 {url}</a>
-        <p>{description}</p>
-    </div>
-    """
-    return html
 
 # Funzione per chiamare Gemini
 def get_gemini_suggestions(mercato, ambito, lingua):
@@ -397,7 +370,6 @@ def get_gemini_suggestions(mercato, ambito, lingua):
             error_details = "\n".join(errors[:3])
             return f"❌ Errore: Nessun modello Gemini disponibile.\n\nDettagli:\n{error_details}"
         
-        # Prompt che chiede esplicitamente gli URL
         prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
 
 Un'azienda opera nel settore: {mercato}
@@ -415,14 +387,14 @@ IMPORTANTE:
 Formatta ESATTAMENTE così:
 
 1. [Nome del sito] - [Sito/Blog/Canale YouTube]
-https://[url-completo-del-sito].com
-[Spiegazione di 2-3 righe del perché è importante per Gemini]
+https://[url-completo].com
+[Spiegazione di 2-3 righe]
 
 2. [Nome del sito] - [Sito/Blog/Canale YouTube]
-https://[url-completo-del-sito].com
+https://[url-completo].com
 [Spiegazione...]
 
-Continua per tutti i 10 siti. RICORDA: includi SEMPRE l'URL completo su una riga separata dopo il nome."""
+Continua per tutti i 10 siti. RICORDA: URL completo su riga separata."""
 
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
@@ -483,14 +455,34 @@ if st.session_state.show_results and st.session_state.results:
         # Prendi solo i primi 5
         first_5_results = all_results[:5]
         
-        # Genera HTML per i primi 5
-        html_output = '<div class="results-container">'
-        for result in first_5_results:
-            html_output += format_result_html(result)
-        html_output += '</div>'
+        # Mostra ogni risultato singolarmente per garantire il rendering
+        st.markdown('<div class="results-container">', unsafe_allow_html=True)
         
-        # Mostra i risultati
-        st.markdown(html_output, unsafe_allow_html=True)
+        for result in first_5_results:
+            number = result['number']
+            name = result['name']
+            type_badge = result['type']
+            url = result['url']
+            description = ' '.join(result['description'])
+            
+            # Se non c'è URL, creane uno
+            if not url:
+                url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
+            
+            # Renderizza ogni risultato come HTML
+            result_html = f"""
+            <div class="result-item">
+                <h4>
+                    {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
+                    <span class="type-badge">{type_badge}</span>
+                </h4>
+                <a href="{url}" target="_blank" class="url-link">🔗 {url}</a>
+                <p>{description}</p>
+            </div>
+            """
+            st.markdown(result_html, unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # CTA Box
         st.markdown("""
