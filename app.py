@@ -242,30 +242,34 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         # Configura Gemini con la API key dai secrets
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Lista dei modelli da provare in ordine (AGGIORNATA con nomi corretti)
+        # Lista dei modelli più recenti da provare (Gemini 2.0 e successivi)
         models_to_try = [
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-pro'
+            'gemini-2.0-flash-exp',  # Gemini 2.0 Flash (più recente e veloce)
+            'gemini-exp-1206',       # Experimental model
+            'gemini-exp-1121',       # Experimental model  
+            'gemini-1.5-pro-latest', # Gemini 1.5 Pro Latest
+            'gemini-1.5-flash-latest', # Gemini 1.5 Flash Latest
+            'gemini-1.5-pro-002',    # Versione stabile 1.5 Pro
+            'gemini-1.5-flash-002',  # Versione stabile 1.5 Flash
         ]
         
         model = None
         working_model_name = None
-        last_error = None
+        errors = []
         
         # Prova ogni modello fino a trovarne uno che funziona
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)
                 working_model_name = model_name
-                # Non facciamo più il test, andiamo direttamente alla generazione
                 break
             except Exception as e:
-                last_error = str(e)
+                errors.append(f"{model_name}: {str(e)}")
                 continue
         
         if model is None:
-            return f"❌ Errore: Impossibile inizializzare il modello Gemini. Ultimo errore: {last_error}"
+            error_details = "\n".join(errors[:3])  # Mostra solo i primi 3 errori
+            return f"❌ Errore: Nessun modello Gemini disponibile. Verifica la tua API key su https://aistudio.google.com/app/apikey\n\nDettagli:\n{error_details}"
         
         # Crea il prompt
         prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
@@ -292,33 +296,53 @@ Formatta la risposta così:
 
 E così via per tutti i 10 suggerimenti."""
 
-        # Genera la risposta
-        response = model.generate_content(prompt)
+        # Genera la risposta con configurazioni di sicurezza permissive
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7,
+            top_p=0.8,
+            top_k=40,
+            max_output_tokens=2048,
+        )
         
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config,
+            safety_settings={
+                'HARASSMENT': 'BLOCK_NONE',
+                'HATE_SPEECH': 'BLOCK_NONE', 
+                'SEXUALLY_EXPLICIT': 'BLOCK_NONE',
+                'DANGEROUS_CONTENT': 'BLOCK_NONE',
+            }
+        )
+        
+        # Estrai il testo dalla risposta
         if response and hasattr(response, 'text') and response.text:
             return response.text
-        elif response and hasattr(response, 'parts'):
-            # A volte la risposta è in parts
+        elif response and hasattr(response, 'parts') and response.parts:
             return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
+        elif response:
+            return f"❌ Errore: Risposta ricevuta ma vuota. La risposta potrebbe essere stata bloccata dai filtri di sicurezza."
         else:
-            return "❌ Errore: Risposta vuota dal modello Gemini"
+            return "❌ Errore: Nessuna risposta dal modello Gemini"
         
     except Exception as e:
         error_message = str(e)
         
         # Messaggi di errore più user-friendly
         if "API_KEY" in error_message.upper() or "api key" in error_message.lower():
-            return "❌ Errore: API Key non configurata correttamente. Verifica la configurazione nei secrets di Streamlit."
+            return "❌ Errore: API Key non configurata o non valida.\n\nVerifica su: https://aistudio.google.com/app/apikey"
         elif "QUOTA" in error_message.upper() or "quota" in error_message.lower():
             return "❌ Errore: Quota API esaurita. Verifica il tuo account Google AI Studio."
         elif "RATE_LIMIT" in error_message.upper() or "rate limit" in error_message.lower():
             return "❌ Errore: Limite di richieste raggiunto. Riprova tra qualche minuto."
         elif "404" in error_message:
-            return f"❌ Errore: Modello non disponibile. Verifica che la tua API key abbia accesso ai modelli Gemini. Errore: {error_message}"
+            return f"❌ Errore 404: Modelli non trovati.\n\nSoluzione:\n1. Vai su https://aistudio.google.com/app/apikey\n2. Crea una nuova API key\n3. Assicurati che sia abilitata per Gemini API\n\nErrore tecnico: {error_message}"
         elif "PERMISSION" in error_message.upper() or "permission" in error_message.lower():
-            return "❌ Errore: Permessi API insufficienti. Verifica che la tua API key sia attiva e abbia i permessi necessari."
+            return "❌ Errore: Permessi insufficienti. Verifica che la tua API key sia attiva."
+        elif "SAFETY" in error_message.upper():
+            return "❌ Errore: La risposta è stata bloccata dai filtri di sicurezza. Riprova con una richiesta leggermente diversa."
         else:
-            return f"❌ Errore nella chiamata API: {error_message}"
+            return f"❌ Errore imprevisto: {error_message}\n\nSe il problema persiste, crea una nuova API key su: https://aistudio.google.com/app/apikey"
 
 # Processo di analisi
 if analyze_button:
@@ -338,7 +362,7 @@ if st.session_state.show_results and st.session_state.results:
     if st.session_state.results.startswith("❌"):
         st.markdown(f"""
             <div class="error-box">
-                <p>{st.session_state.results}</p>
+                <p style="white-space: pre-wrap;">{st.session_state.results}</p>
             </div>
         """, unsafe_allow_html=True)
     else:
