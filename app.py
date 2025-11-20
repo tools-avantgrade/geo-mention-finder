@@ -1,5 +1,6 @@
 import streamlit as st
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 
 # Configurazione pagina
@@ -242,15 +243,15 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         # Configura Gemini con la API key dai secrets
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Lista dei modelli più recenti da provare (Gemini 2.0 e successivi)
+        # Lista dei modelli più recenti da provare
         models_to_try = [
-            'gemini-2.0-flash-exp',  # Gemini 2.0 Flash (più recente e veloce)
-            'gemini-exp-1206',       # Experimental model
-            'gemini-exp-1121',       # Experimental model  
-            'gemini-1.5-pro-latest', # Gemini 1.5 Pro Latest
-            'gemini-1.5-flash-latest', # Gemini 1.5 Flash Latest
-            'gemini-1.5-pro-002',    # Versione stabile 1.5 Pro
-            'gemini-1.5-flash-002',  # Versione stabile 1.5 Flash
+            'gemini-2.0-flash-exp',
+            'gemini-exp-1206',
+            'gemini-exp-1121',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash-latest',
+            'gemini-1.5-pro-002',
+            'gemini-1.5-flash-002',
         ]
         
         model = None
@@ -268,7 +269,7 @@ def get_gemini_suggestions(mercato, ambito, lingua):
                 continue
         
         if model is None:
-            error_details = "\n".join(errors[:3])  # Mostra solo i primi 3 errori
+            error_details = "\n".join(errors[:3])
             return f"❌ Errore: Nessun modello Gemini disponibile. Verifica la tua API key su https://aistudio.google.com/app/apikey\n\nDettagli:\n{error_details}"
         
         # Crea il prompt
@@ -296,23 +297,27 @@ Formatta la risposta così:
 
 E così via per tutti i 10 suggerimenti."""
 
-        # Genera la risposta con configurazioni di sicurezza permissive
+        # Configurazione di generazione
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
-            top_p=0.8,
+            top_p=0.95,
             top_k=40,
             max_output_tokens=2048,
         )
         
+        # Safety settings corretti (FORMATO CORRETTO)
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+        
+        # Genera la risposta
         response = model.generate_content(
             prompt,
             generation_config=generation_config,
-            safety_settings={
-                'HARASSMENT': 'BLOCK_NONE',
-                'HATE_SPEECH': 'BLOCK_NONE', 
-                'SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-                'DANGEROUS_CONTENT': 'BLOCK_NONE',
-            }
+            safety_settings=safety_settings
         )
         
         # Estrai il testo dalla risposta
