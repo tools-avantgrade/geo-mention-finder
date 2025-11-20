@@ -119,11 +119,12 @@ st.markdown("""
         text-decoration: none;
         font-weight: 600;
         transition: all 0.3s ease;
+        border-bottom: 2px solid transparent;
     }
     
     .result-item .site-link:hover {
         color: #764ba2;
-        text-decoration: underline;
+        border-bottom: 2px solid #764ba2;
     }
     
     .result-item .type-badge {
@@ -135,6 +136,19 @@ st.markdown("""
         font-size: 0.85rem;
         font-weight: 500;
         margin-left: 0.5rem;
+    }
+    
+    .result-item .url-link {
+        display: inline-block;
+        color: #667eea;
+        text-decoration: none;
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+        word-break: break-all;
+    }
+    
+    .result-item .url-link:hover {
+        text-decoration: underline;
     }
     
     .result-item p {
@@ -235,7 +249,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Info box
+# Info box - CORRETTO: dice 10 siti
 st.markdown("""
     <div class="info-box">
         <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente.</p>
@@ -262,13 +276,102 @@ if 'show_results' not in st.session_state:
 # Button
 analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 
+# Funzione per estrarre URL dal testo
+def extract_urls_from_text(text):
+    """Estrae tutti gli URL dal testo"""
+    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
+    return re.findall(url_pattern, text)
+
+# Funzione per parsare i risultati
+def parse_results(text):
+    """Parsa i risultati in una struttura dati"""
+    results = []
+    lines = text.split('\n')
+    current_result = None
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # Cerca pattern numero. Nome - Tipo
+        match = re.match(r'^(\d+)\.\s*(.+?)\s*-\s*(.+)$', line)
+        if match:
+            # Salva il risultato precedente se esiste
+            if current_result:
+                results.append(current_result)
+            
+            # Crea nuovo risultato
+            current_result = {
+                'number': match.group(1),
+                'name': match.group(2).strip(),
+                'type': match.group(3).strip(),
+                'url': '',
+                'description': []
+            }
+            continue
+        
+        # Cerca URL nella linea
+        if current_result:
+            urls = extract_urls_from_text(line)
+            if urls and not current_result['url']:
+                current_result['url'] = urls[0]
+            
+            # Se non contiene URL e non è vuota, è parte della descrizione
+            if not line.startswith(('http://', 'https://', 'URL:', 'url:')):
+                # Rimuovi eventuali prefissi URL:
+                cleaned_line = re.sub(r'^(URL:|url:)\s*', '', line)
+                if cleaned_line and not cleaned_line.startswith('http'):
+                    current_result['description'].append(cleaned_line)
+    
+    # Aggiungi l'ultimo risultato
+    if current_result:
+        results.append(current_result)
+    
+    return results
+
+# Funzione per formattare un singolo risultato come HTML
+def format_result_html(result):
+    """Formatta un singolo risultato come HTML con link"""
+    number = result['number']
+    name = result['name']
+    type_badge = result['type']
+    url = result['url']
+    description = ' '.join(result['description'])
+    
+    # Se non c'è URL, cerca di crearne uno
+    if not url:
+        # Cerca di estrarre un possibile dominio dal nome
+        name_lower = name.lower()
+        if 'sole 24 ore' in name_lower or 'ilsole24ore' in name_lower:
+            url = 'https://www.ilsole24ore.com'
+        elif 'trasporto europa' in name_lower:
+            url = 'https://www.trasportoeuropa.it'
+        elif 'supply chain italy' in name_lower:
+            url = 'https://www.supplychainitaly.it'
+        elif 'industry 4.0' in name_lower or 'industry4.0' in name_lower:
+            url = 'https://www.industry4business.it'
+        else:
+            # Fallback: ricerca Google
+            url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
+    
+    html = f"""
+    <div class="result-item">
+        <h4>
+            {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
+            <span class="type-badge">{type_badge}</span>
+        </h4>
+        <a href="{url}" target="_blank" class="url-link">🔗 {url}</a>
+        <p>{description}</p>
+    </div>
+    """
+    return html
+
 # Funzione per chiamare Gemini
 def get_gemini_suggestions(mercato, ambito, lingua):
     try:
-        # Configura Gemini con la API key dai secrets
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Lista dei modelli più recenti da provare
         models_to_try = [
             'gemini-2.0-flash-exp',
             'gemini-exp-1206',
@@ -280,14 +383,11 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         ]
         
         model = None
-        working_model_name = None
         errors = []
         
-        # Prova ogni modello fino a trovarne uno che funziona
         for model_name in models_to_try:
             try:
                 model = genai.GenerativeModel(model_name)
-                working_model_name = model_name
                 break
             except Exception as e:
                 errors.append(f"{model_name}: {str(e)}")
@@ -295,9 +395,9 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         
         if model is None:
             error_details = "\n".join(errors[:3])
-            return f"❌ Errore: Nessun modello Gemini disponibile. Verifica la tua API key su https://aistudio.google.com/app/apikey\n\nDettagli:\n{error_details}"
+            return f"❌ Errore: Nessun modello Gemini disponibile.\n\nDettagli:\n{error_details}"
         
-        # Crea il prompt - AGGIORNATO per includere URL
+        # Prompt che chiede esplicitamente gli URL
         prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
 
 Un'azienda opera nel settore: {mercato}
@@ -305,28 +405,25 @@ Ambito specifico: {ambito}
 Mercato di riferimento: Italia
 Lingua: {lingua}
 
-Identifica i 10 siti web informativi, portali di settore, blog specializzati e canali YouTube più autorevoli e rilevanti dove questa azienda DEVE essere menzionata per massimizzare la propria visibilità su Gemini AI e altri motori di ricerca generativi.
+Identifica i 10 siti web informativi, portali di settore, blog specializzati e canali YouTube più autorevoli e rilevanti dove questa azienda DEVE essere menzionata per massimizzare la propria visibilità su Gemini AI.
 
 IMPORTANTE: 
 - Escludi siti istituzionali (.gov, .edu)
-- Concentrati su: portali informativi di settore, magazine online, blog specializzati, testate giornalistiche di settore, canali YouTube autorevoli
-- Per ogni fonte fornisci: nome, URL completo (https://...), tipologia (sito/blog/canale YouTube), e una breve spiegazione (2-3 righe) del perché è importante per la visibilità su Gemini
+- Fornisci SEMPRE l'URL completo (https://...) per ogni sito
+- Per ogni fonte: nome, URL, tipologia e spiegazione
 
-Formatta la risposta ESATTAMENTE così:
+Formatta ESATTAMENTE così:
 
-1. [Nome] - [Tipologia]
-URL: [URL completo del sito]
-[Spiegazione dettagliata del perché questo canale è cruciale per la visibilità su Gemini, quali contenuti pubblicano, che autorevolezza hanno nel settore]
+1. [Nome del sito] - [Sito/Blog/Canale YouTube]
+https://[url-completo-del-sito].com
+[Spiegazione di 2-3 righe del perché è importante per Gemini]
 
-2. [Nome] - [Tipologia]
-URL: [URL completo del sito]
-[Spiegazione dettagliata...]
+2. [Nome del sito] - [Sito/Blog/Canale YouTube]
+https://[url-completo-del-sito].com
+[Spiegazione...]
 
-E così via per tutti i 10 suggerimenti.
+Continua per tutti i 10 siti. RICORDA: includi SEMPRE l'URL completo su una riga separata dopo il nome."""
 
-IMPORTANTE: Includi SEMPRE l'URL completo (con https://) per ogni sito/canale."""
-
-        # Configurazione di generazione
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
             top_p=0.95,
@@ -334,7 +431,6 @@ IMPORTANTE: Includi SEMPRE l'URL completo (con https://) per ogni sito/canale.""
             max_output_tokens=3000,
         )
         
-        # Safety settings corretti
         safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
             HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -342,117 +438,21 @@ IMPORTANTE: Includi SEMPRE l'URL completo (con https://) per ogni sito/canale.""
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
         
-        # Genera la risposta
         response = model.generate_content(
             prompt,
             generation_config=generation_config,
             safety_settings=safety_settings
         )
         
-        # Estrai il testo dalla risposta
         if response and hasattr(response, 'text') and response.text:
             return response.text
         elif response and hasattr(response, 'parts') and response.parts:
             return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
-        elif response:
-            return f"❌ Errore: Risposta ricevuta ma vuota. La risposta potrebbe essere stata bloccata dai filtri di sicurezza."
         else:
             return "❌ Errore: Nessuna risposta dal modello Gemini"
         
     except Exception as e:
-        error_message = str(e)
-        
-        # Messaggi di errore più user-friendly
-        if "API_KEY" in error_message.upper() or "api key" in error_message.lower():
-            return "❌ Errore: API Key non configurata o non valida.\n\nVerifica su: https://aistudio.google.com/app/apikey"
-        elif "QUOTA" in error_message.upper() or "quota" in error_message.lower():
-            return "❌ Errore: Quota API esaurita. Verifica il tuo account Google AI Studio."
-        elif "RATE_LIMIT" in error_message.upper() or "rate limit" in error_message.lower():
-            return "❌ Errore: Limite di richieste raggiunto. Riprova tra qualche minuto."
-        elif "404" in error_message:
-            return f"❌ Errore 404: Modelli non trovati.\n\nSoluzione:\n1. Vai su https://aistudio.google.com/app/apikey\n2. Crea una nuova API key\n3. Assicurati che sia abilitata per Gemini API\n\nErrore tecnico: {error_message}"
-        elif "PERMISSION" in error_message.upper() or "permission" in error_message.lower():
-            return "❌ Errore: Permessi insufficienti. Verifica che la tua API key sia attiva."
-        elif "SAFETY" in error_message.upper():
-            return "❌ Errore: La risposta è stata bloccata dai filtri di sicurezza. Riprova con una richiesta leggermente diversa."
-        else:
-            return f"❌ Errore imprevisto: {error_message}\n\nSe il problema persiste, crea una nuova API key su: https://aistudio.google.com/app/apikey"
-
-# Funzione per parsare e formattare i risultati con link
-def format_results_with_links(text):
-    """Parsa i risultati e crea HTML con link cliccabili"""
-    lines = text.split('\n')
-    html_output = []
-    current_result = {}
-    result_number = 0
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        # Rileva inizio di un nuovo risultato (numero seguito da punto)
-        if line and len(line) > 0:
-            match = re.match(r'^(\d+)\.\s*(.+?)\s*-\s*(.+)$', line)
-            if match:
-                # Se c'è un risultato precedente, salvalo
-                if current_result:
-                    html_output.append(format_single_result(current_result))
-                
-                result_number = int(match.group(1))
-                current_result = {
-                    'number': result_number,
-                    'name': match.group(2).strip(),
-                    'type': match.group(3).strip(),
-                    'url': '',
-                    'description': []
-                }
-                i += 1
-                continue
-        
-        # Cerca URL
-        if line.startswith('URL:') or line.startswith('url:'):
-            url = line.split(':', 1)[1].strip()
-            if current_result:
-                current_result['url'] = url
-            i += 1
-            continue
-        
-        # Aggiungi alla descrizione se non è vuota e siamo in un risultato
-        if line and current_result and not line.startswith(('http://', 'https://')):
-            # Salta se è l'inizio di un nuovo risultato
-            if not re.match(r'^\d+\.', line):
-                current_result['description'].append(line)
-        
-        i += 1
-    
-    # Aggiungi l'ultimo risultato
-    if current_result:
-        html_output.append(format_single_result(current_result))
-    
-    return ''.join(html_output)
-
-def format_single_result(result):
-    """Formatta un singolo risultato come HTML"""
-    name = result.get('name', '')
-    type_badge = result.get('type', '')
-    url = result.get('url', '')
-    description = ' '.join(result.get('description', []))
-    number = result.get('number', 0)
-    
-    # Se non c'è URL, prova a crearne uno di ricerca Google
-    if not url or not url.startswith('http'):
-        url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
-    
-    html = f"""
-    <div class="result-item">
-        <h4>
-            {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
-            <span class="type-badge">{type_badge}</span>
-        </h4>
-        <p>{description}</p>
-    </div>
-    """
-    return html
+        return f"❌ Errore: {str(e)}"
 
 # Processo di analisi
 if analyze_button:
@@ -468,7 +468,6 @@ if analyze_button:
 if st.session_state.show_results and st.session_state.results:
     st.markdown("---")
     
-    # Controlla se c'è un errore
     if st.session_state.results.startswith("❌"):
         st.markdown(f"""
             <div class="error-box">
@@ -478,35 +477,20 @@ if st.session_state.show_results and st.session_state.results:
     else:
         st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
         
-        # Split dei risultati - mostra primi 5 COMPLETI
-        full_results = st.session_state.results
-        results_lines = full_results.split('\n')
+        # Parsa i risultati
+        all_results = parse_results(st.session_state.results)
         
-        display_lines = []
-        count = 0
+        # Prendi solo i primi 5
+        first_5_results = all_results[:5]
         
-        for i, line in enumerate(results_lines):
-            # Rileva l'inizio di un nuovo risultato numerato
-            if line.strip() and len(line.strip()) > 0:
-                first_chars = line.strip()[:3]
-                if any(char.isdigit() for char in first_chars) and '.' in first_chars:
-                    count += 1
-                    if count > 5:
-                        break
-            
-            # Aggiungi la linea se siamo dentro i primi 5 risultati
-            if count <= 5:
-                display_lines.append(line)
+        # Genera HTML per i primi 5
+        html_output = '<div class="results-container">'
+        for result in first_5_results:
+            html_output += format_result_html(result)
+        html_output += '</div>'
         
-        # Mostra i primi 5 risultati con link
-        preview_text = '\n'.join(display_lines)
-        formatted_html = format_results_with_links(preview_text)
-        
-        st.markdown(f"""
-            <div class="results-container">
-                {formatted_html}
-            </div>
-        """, unsafe_allow_html=True)
+        # Mostra i risultati
+        st.markdown(html_output, unsafe_allow_html=True)
         
         # CTA Box
         st.markdown("""
