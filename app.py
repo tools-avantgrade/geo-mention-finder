@@ -290,10 +290,27 @@ if 'show_results' not in st.session_state:
 # Button
 analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 
+# Funzione per pulire il testo da markdown
+def clean_markdown(text):
+    """Rimuove markdown e caratteri speciali dal testo"""
+    if not text:
+        return text
+    # Rimuovi ** (bold)
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    # Rimuovi * (italic)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    # Rimuovi altri markdown comuni
+    text = re.sub(r'__([^_]+)__', r'\1', text)
+    text = re.sub(r'_([^_]+)_', r'\1', text)
+    return text.strip()
+
 # Funzione per cercare URL usando Gemini con Google Search
 def find_url_with_gemini(site_name, site_type=""):
     """Cerca l'URL usando Gemini con Google Search grounding"""
     try:
+        # Pulisci il nome del sito
+        site_name = clean_markdown(site_name)
+        
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
         # Prova con modelli che supportano grounding
@@ -357,18 +374,22 @@ def parse_results(text):
     while i < len(lines):
         line = lines[i].strip()
         
-        # Cerca pattern numero. Nome - Tipo
-        match = re.match(r'^(\d+)\.\s*(.+?)\s*-\s*(.+)$', line)
+        # Cerca pattern numero. Nome - Tipo (supporta markdown)
+        match = re.match(r'^(\d+)\.\s*\*?\*?(.+?)\*?\*?\s*-\s*(.+)$', line)
         if match:
             # Salva il risultato precedente se esiste
             if current_result:
                 results.append(current_result)
             
+            # Pulisci il nome e tipo da markdown
+            name = clean_markdown(match.group(2).strip())
+            type_text = clean_markdown(match.group(3).strip())
+            
             # Crea nuovo risultato
             current_result = {
                 'number': match.group(1),
-                'name': match.group(2).strip(),
-                'type': match.group(3).strip(),
+                'name': name,
+                'type': type_text,
                 'url': '',
                 'description': [],
                 'url_verified': False
@@ -392,9 +413,10 @@ def parse_results(text):
                 i += 1
                 continue
             
-            # Aggiungi alla descrizione
+            # Aggiungi alla descrizione (pulendo il markdown)
             if not re.match(r'^\d+\.', line):
-                current_result['description'].append(line)
+                cleaned_line = clean_markdown(line)
+                current_result['description'].append(cleaned_line)
         
         i += 1
     
@@ -482,14 +504,15 @@ IMPORTANTE:
 - Escludi siti istituzionali (.gov, .edu)
 - Fornisci SEMPRE il nome ESATTO e REALE del sito (verifica che esista davvero)
 - Per ogni fonte: nome esatto, tipologia e spiegazione strategica
+- NON usare formattazione markdown (**, __, ecc.)
 
 Formatta ESATTAMENTE così:
 
-1. [Nome ESATTO del sito] - [Sito/Blog/Canale YouTube]
-[Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità GEO]
+1. Nome del Sito - Tipologia
+Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità GEO
 
-2. [Nome ESATTO del sito] - [Sito/Blog/Canale YouTube]
-[Spiegazione...]
+2. Nome del Sito - Tipologia
+Spiegazione...
 
 Continua per tutti i 10 siti. FONDAMENTALE: usa SOLO nomi di siti REALI ed ESISTENTI, non inventare."""
 
@@ -567,8 +590,6 @@ if st.session_state.show_results and st.session_state.results:
         first_5_results = st.session_state.results[:5]
         
         # Mostra ogni risultato
-        st.markdown('<div class="results-container">', unsafe_allow_html=True)
-        
         for result in first_5_results:
             number = result['number']
             name = result['name']
@@ -577,22 +598,21 @@ if st.session_state.show_results and st.session_state.results:
             description = ' '.join(result['description'])
             verified = result.get('url_verified', False)
             
-            verified_badge = '<span class="verified-badge">✓ URL Verificato</span>' if verified else ''
-            
-            result_html = f"""
-            <div class="result-item">
-                <h4>
-                    {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
-                    <span class="type-badge">{type_badge}</span>
-                    {verified_badge}
-                </h4>
-                <a href="{url}" target="_blank" class="url-link">🔗 {url}</a>
-                <p>{description}</p>
-            </div>
-            """
-            st.markdown(result_html, unsafe_allow_html=True)
-        
-        st.markdown('</div>', unsafe_allow_html=True)
+            # Container per ogni risultato
+            with st.container():
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    st.markdown(f"#### {number}. [{name}]({url})")
+                
+                with col2:
+                    st.markdown(f"`{type_badge}`")
+                    if verified:
+                        st.markdown("✓ *Verificato*")
+                
+                st.markdown(f"🔗 [{url}]({url})")
+                st.markdown(description)
+                st.markdown("---")
         
         # CTA Box
         st.markdown("""
