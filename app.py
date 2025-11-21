@@ -4,6 +4,8 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 import re
 from urllib.parse import urlparse
+import requests
+from bs4 import BeautifulSoup
 
 # Configurazione pagina
 st.set_page_config(
@@ -215,31 +217,86 @@ def clean_markdown(text):
     text = re.sub(r'_([^_]+)_', r'\1', text)
     return text.strip()
 
-# Funzione per estrarre URL dal testo
-def extract_urls_from_text(text):
-    """Estrae tutti gli URL dal testo"""
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(]+'
-    urls = re.findall(url_pattern, text)
-    return urls
-
-# Funzione per validare URL
-def is_valid_url(url):
-    """Controlla se un URL è valido e non è una ricerca Google"""
-    if not url:
-        return False
-    if 'google.com/search' in url.lower():
-        return False
-    if 'youtube.com/results' in url.lower():
-        return False
+# Funzione per ottenere il dominio da un nome sito
+def extract_domain_from_sitename(site_name):
+    """Cerca il dominio del sito usando ricerca web simulata"""
     try:
-        parsed = urlparse(url)
-        return bool(parsed.netloc and parsed.scheme in ['http', 'https'])
+        # Prova a cercare con requests
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        # Cerca su Google
+        query = f"{site_name} sito ufficiale"
+        google_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        
+        response = requests.get(google_url, headers=headers, timeout=5)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Cerca il primo link nei risultati
+            for link in soup.find_all('a'):
+                href = link.get('href', '')
+                if '/url?q=' in href:
+                    url = href.split('/url?q=')[1].split('&')[0]
+                    parsed = urlparse(url)
+                    if parsed.netloc and 'google' not in parsed.netloc:
+                        return parsed.netloc
+        
+        return None
     except:
-        return False
+        return None
 
-# Funzione per parsare i risultati con URL
+# Funzione per cercare articolo specifico su un sito
+def search_article_on_site(site_name, domain, mercato, ambito):
+    """Cerca un articolo specifico su un sito usando ricerca web REALE"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        # Costruisci query con site operator
+        if domain:
+            query = f"site:{domain} {mercato} {ambito}"
+        else:
+            query = f"{site_name} {mercato} {ambito}"
+        
+        google_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        
+        response = requests.get(google_url, headers=headers, timeout=5)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Cerca il primo risultato reale
+            for link in soup.find_all('a'):
+                href = link.get('href', '')
+                if '/url?q=' in href:
+                    url = href.split('/url?q=')[1].split('&')[0]
+                    
+                    # Verifica che sia un URL valido
+                    if url.startswith('http') and 'google.com' not in url:
+                        # Verifica che il dominio corrisponda se disponibile
+                        if domain:
+                            if domain in url:
+                                return url
+                        else:
+                            return url
+        
+        # Fallback: homepage del sito
+        if domain:
+            return f"https://{domain}"
+        
+        return None
+        
+    except Exception as e:
+        print(f"Errore ricerca articolo per {site_name}: {str(e)}")
+        return None
+
+# Funzione per parsare i risultati (solo nomi siti)
 def parse_results(text):
-    """Parsa i risultati che includono già gli URL degli articoli"""
+    """Parsa i risultati in una struttura dati"""
     results = []
     lines = text.split('\n')
     current_result = None
@@ -248,10 +305,9 @@ def parse_results(text):
     while i < len(lines):
         line = lines[i].strip()
         
-        # Cerca pattern: numero. Nome - Tipo
+        # Cerca pattern numero. Nome - Tipo
         match = re.match(r'^(\d+)\.\s*\*?\*?(.+?)\*?\*?\s*-\s*(.+)$', line)
         if match:
-            # Salva il risultato precedente
             if current_result:
                 results.append(current_result)
             
@@ -268,62 +324,70 @@ def parse_results(text):
             i += 1
             continue
         
-        # Se siamo in un risultato
         if current_result:
-            # Cerca URL nella linea
-            urls = extract_urls_from_text(line)
-            if urls and not current_result['url']:
-                # Prendi il primo URL valido
-                for url in urls:
-                    if is_valid_url(url):
-                        current_result['url'] = url
-                        break
-                i += 1
-                continue
-            
-            # Salta linee vuote
             if not line:
                 i += 1
                 continue
             
-            # Aggiungi alla descrizione
             if not re.match(r'^\d+\.', line) and not line.startswith('http'):
                 cleaned_line = clean_markdown(line)
                 current_result['description'].append(cleaned_line)
         
         i += 1
     
-    # Aggiungi l'ultimo risultato
     if current_result:
         results.append(current_result)
     
     return results
 
-# Funzione per chiamare Gemini con ricerca grounding
-def get_gemini_suggestions_with_urls(mercato, ambito, lingua):
+# Funzione per trovare articoli REALI per ogni sito
+def find_real_articles(results, mercato, ambito, progress_bar=None):
+    """Trova articoli REALI usando ricerca web"""
+    total = len(results)
+    
+    for idx, result in enumerate(results):
+        if progress_bar:
+            progress_bar.progress((idx + 1) / total, text=f"🔍 Ricerca articoli reali {idx + 1}/{total}: {result['name']}")
+        
+        # Prima trova il dominio del sito
+        domain = extract_domain_from_sitename(result['name'])
+        
+        # Poi cerca un articolo specifico
+        article_url = search_article_on_site(result['name'], domain, mercato, ambito)
+        
+        if article_url:
+            result['url'] = article_url
+        else:
+            # Ultimo fallback
+            result['url'] = f"https://www.google.com/search?q={result['name'].replace(' ', '+')}"
+    
+    return results
+
+# Funzione per chiamare Gemini (solo per nomi siti)
+def get_gemini_suggestions(mercato, ambito, lingua):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Prova prima modelli con grounding (per avere URL reali)
-        models_with_grounding = [
-            ('gemini-1.5-pro-latest', True),
-            ('gemini-1.5-flash-latest', True),
-            ('gemini-2.0-flash-exp', False),
-            ('gemini-exp-1206', False),
+        models_to_try = [
+            'gemini-2.0-flash-exp',
+            'gemini-exp-1206',
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash-latest',
         ]
         
-        for model_name, has_grounding in models_with_grounding:
+        model = None
+        
+        for model_name in models_to_try:
             try:
-                # Crea modello
-                if has_grounding:
-                    model = genai.GenerativeModel(
-                        model_name,
-                        tools='google_search_retrieval'
-                    )
-                else:
-                    model = genai.GenerativeModel(model_name)
-                
-                prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale.
+                model = genai.GenerativeModel(model_name)
+                break
+            except:
+                continue
+        
+        if model is None:
+            return "❌ Errore: Nessun modello Gemini disponibile"
+        
+        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale.
 
 Un'azienda opera nel settore: {mercato}
 Ambito specifico: {ambito}
@@ -331,54 +395,47 @@ Lingua: {lingua}
 
 Identifica i 10 siti web informativi, portali, blog e canali YouTube più autorevoli dove questa azienda DEVE essere menzionata per massimizzare la visibilità su Gemini AI.
 
-IMPORTANTE: 
-- Per OGNI sito, cerca e fornisci l'URL di UN ARTICOLO SPECIFICO recente che parla di {mercato} {ambito}
-- Se è un canale YouTube, fornisci l'URL di un video specifico pertinente
+IMPORTANTE:
+- Fornisci SOLO il nome del sito e la tipologia
+- NON inventare URL
 - Escludi siti istituzionali (.gov, .edu)
 - NON usare formattazione markdown
 
 Formatta ESATTAMENTE così:
 
-1. Nome del Sito - Tipologia
-https://url-articolo-specifico-completo.com/articolo
-Spiegazione di 2-3 righe sul perché questo articolo/contenuto è strategico
+1. Nome Esatto del Sito - Tipologia
+Spiegazione di 2-3 righe sul perché questo sito è strategico
 
-2. Nome del Sito - Tipologia  
-https://url-articolo-specifico-completo.com/articolo
+2. Nome Esatto del Sito - Tipologia
 Spiegazione...
 
-Continua per tutti i 10 siti. FONDAMENTALE: fornisci URL COMPLETI di articoli/video SPECIFICI, non homepage."""
+Continua per tutti i 10 siti. USA SOLO nomi di siti REALI."""
 
-                generation_config = genai.types.GenerationConfig(
-                    temperature=0.7,
-                    top_p=0.95,
-                    top_k=40,
-                    max_output_tokens=3000,
-                )
-                
-                safety_settings = {
-                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-                }
-                
-                response = model.generate_content(
-                    prompt,
-                    generation_config=generation_config,
-                    safety_settings=safety_settings
-                )
-                
-                if response and hasattr(response, 'text') and response.text:
-                    return response.text
-                elif response and hasattr(response, 'parts') and response.parts:
-                    return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
-                
-            except Exception as e:
-                print(f"Errore con {model_name}: {str(e)}")
-                continue
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7,
+            top_p=0.95,
+            max_output_tokens=3000,
+        )
         
-        return "❌ Errore: Nessun modello Gemini disponibile"
+        safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+        
+        response = model.generate_content(
+            prompt,
+            generation_config=generation_config,
+            safety_settings=safety_settings
+        )
+        
+        if response and hasattr(response, 'text') and response.text:
+            return response.text
+        elif response and hasattr(response, 'parts') and response.parts:
+            return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
+        
+        return "❌ Errore: Nessuna risposta"
         
     except Exception as e:
         return f"❌ Errore: {str(e)}"
@@ -388,79 +445,74 @@ if analyze_button:
     if not mercato or not ambito or not lingua:
         st.error("⚠️ Per favore compila tutti i campi")
     else:
-        with st.spinner("🔄 Sto cercando i migliori articoli e contenuti per la tua visibilità su Gemini..."):
-            result = get_gemini_suggestions_with_urls(mercato, ambito, lingua)
+        with st.spinner("🔄 Sto identificando i siti più strategici..."):
+            result = get_gemini_suggestions(mercato, ambito, lingua)
             
             if not result.startswith("❌"):
                 parsed_results = parse_results(result)
                 
-                # Filtra solo risultati con URL validi
-                valid_results = [r for r in parsed_results if is_valid_url(r.get('url', ''))]
-                
-                if len(valid_results) >= 5:
-                    st.session_state.results = valid_results
+                if len(parsed_results) >= 5:
+                    # Ora cerca articoli REALI per ogni sito
+                    progress_placeholder = st.empty()
+                    progress_bar = progress_placeholder.progress(0, text="🔍 Ricerca articoli reali...")
+                    
+                    verified_results = find_real_articles(parsed_results, mercato, ambito, progress_bar)
+                    
+                    progress_placeholder.empty()
+                    
+                    st.session_state.results = verified_results
                     st.session_state.show_results = True
                 else:
-                    st.error("⚠️ Non sono stati trovati abbastanza articoli pertinenti. Prova con parametri diversi.")
+                    st.error("⚠️ Non sono stati trovati abbastanza siti pertinenti.")
             else:
-                st.session_state.results = result
-                st.session_state.show_results = True
+                st.error(result)
 
 # Mostra risultati
 if st.session_state.show_results and st.session_state.results:
     st.markdown("---")
+    st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
     
-    if isinstance(st.session_state.results, str) and st.session_state.results.startswith("❌"):
-        st.markdown(f"""
-            <div class="error-box">
-                <p style="white-space: pre-wrap;">{st.session_state.results}</p>
-            </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("### 📊 I Primi 5 Articoli Strategici Identificati")
+    first_5_results = st.session_state.results[:5]
+    
+    for result in first_5_results:
+        number = result['number']
+        name = result['name']
+        type_badge = result['type']
+        url = result['url']
+        description = ' '.join(result['description'])
         
-        # Prendi solo i primi 5
-        first_5_results = st.session_state.results[:5]
-        
-        # Mostra ogni risultato
-        for result in first_5_results:
-            number = result['number']
-            name = result['name']
-            type_badge = result['type']
-            url = result['url']
-            description = ' '.join(result['description'])
+        with st.container():
+            col1, col2 = st.columns([4, 1])
             
-            with st.container():
-                col1, col2 = st.columns([4, 1])
-                
-                with col1:
-                    st.markdown(f"#### {number}. [{name}]({url})")
-                
-                with col2:
-                    st.markdown(f"`{type_badge}`")
+            with col1:
+                st.markdown(f"#### {number}. [{name}]({url})")
+            
+            with col2:
+                st.markdown(f"`{type_badge}`")
+                if 'google.com/search' not in url:
                     st.markdown("📄 *Articolo*")
-                
-                st.markdown(f"🔗 [{url}]({url})")
-                st.markdown(description)
-                st.markdown("---")
-        
-        # CTA Box
-        st.markdown("""
-            <div class="cta-box">
-                <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
-                <h3>Vuoi scoprire gli altri 5 articoli strategici?</h3>
-                <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 articoli identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
-                <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
-                        <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
-                        <path d="M4.28 27.343a4.277 4.277 0 0 1-2.045-.527A4.217 4.217 0 0 1 0 23.059v-.518a4.828 4.828 0 0 1 1.491-3.48L7.6 13.242l.214.2a8.438 8.438 0 0 1-1.21 13.2 4.254 4.254 0 0 1-2.323.7M7.6 14.103l-5.68 5.408a4.2 4.2 0 0 0-1.3 3.03v.518a3.6 3.6 0 0 0 1.91 3.21 3.6 3.6 0 0 0 3.733-.147A7.817 7.817 0 0 0 7.6 14.103"/>
-                        <path d="m7.614 14.088-.23-.19-5.893-5.616A4.826 4.826 0 0 1 0 4.8v-.516A4.216 4.216 0 0 1 2.235.527 4.215 4.215 0 0 1 6.6.7a8.438 8.438 0 0 1 1.228 13.183ZM4.279.623a3.654 3.654 0 0 0-1.748.451 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.03l5.674 5.41a7.816 7.816 0 0 0-1.33-12.02 3.637 3.637 0 0 0-1.986-.6"/>
-                        <path d="M1.177 16.875a1.184 1.184 0 0 1-.467-.1A1.155 1.155 0 0 1 0 15.701v-4.062a1.155 1.155 0 0 1 .71-1.076 1.154 1.154 0 0 1 1.269.229L5 13.67l-3.021 2.879a1.159 1.159 0 0 1-.8.326m0-5.789a.561.561 0 0 0-.222.047.535.535 0 0 0-.333.505v4.063a.535.535 0 0 0 .331.509.535.535 0 0 0 .6-.107L4.1 13.67l-2.55-2.429a.537.537 0 0 0-.374-.154"/>
-                    </svg>
-                    Richiedi Analisi Completa
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
+            
+            st.markdown(f"🔗 [{url}]({url})")
+            st.markdown(description)
+            st.markdown("---")
+    
+    # CTA Box
+    st.markdown("""
+        <div class="cta-box">
+            <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
+            <h3>Vuoi scoprire gli altri 5 siti strategici?</h3>
+            <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
+            <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
+                    <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
+                    <path d="M4.28 27.343a4.277 4.277 0 0 1-2.045-.527A4.217 4.217 0 0 1 0 23.059v-.518a4.828 4.828 0 0 1 1.491-3.48L7.6 13.242l.214.2a8.438 8.438 0 0 1-1.21 13.2 4.254 4.254 0 0 1-2.323.7M7.6 14.103l-5.68 5.408a4.2 4.2 0 0 0-1.3 3.03v.518a3.6 3.6 0 0 0 1.91 3.21 3.6 3.6 0 0 0 3.733-.147A7.817 7.817 0 0 0 7.6 14.103"/>
+                    <path d="m7.614 14.088-.23-.19-5.893-5.616A4.826 4.826 0 0 1 0 4.8v-.516A4.216 4.216 0 0 1 2.235.527 4.215 4.215 0 0 1 6.6.7a8.438 8.438 0 0 1 1.228 13.183ZM4.279.623a3.654 3.654 0 0 0-1.748.451 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.03l5.674 5.41a7.816 7.816 0 0 0-1.33-12.02 3.637 3.637 0 0 0-1.986-.6"/>
+                    <path d="M1.177 16.875a1.184 1.184 0 0 1-.467-.1A1.155 1.155 0 0 1 0 15.701v-4.062a1.155 1.155 0 0 1 .71-1.076 1.154 1.154 0 0 1 1.269.229L5 13.67l-3.021 2.879a1.159 1.159 0 0 1-.8.326m0-5.789a.561.561 0 0 0-.222.047.535.535 0 0 0-.333.505v4.063a.535.535 0 0 0 .331.509.535.535 0 0 0 .6-.107L4.1 13.67l-2.55-2.429a.537.537 0 0 0-.374-.154"/>
+                </svg>
+                Richiedi Analisi Completa
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
