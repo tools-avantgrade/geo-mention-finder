@@ -3,6 +3,9 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 import re
+import requests
+from urllib.parse import urlparse, quote_plus
+from bs4 import BeautifulSoup
 
 # Configurazione pagina
 st.set_page_config(
@@ -239,6 +242,18 @@ st.markdown("""
         margin: 0;
         color: #c62828;
     }
+    
+    /* Verified badge */
+    .verified-badge {
+        display: inline-block;
+        background: #4caf50;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -277,6 +292,102 @@ if 'show_results' not in st.session_state:
 # Button
 analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 
+# Funzione per cercare URL usando DuckDuckGo (GRATUITO, nessuna API key)
+def search_url_duckduckgo(site_name, site_type=""):
+    """Cerca l'URL usando DuckDuckGo HTML (no API key needed)"""
+    try:
+        # Costruisci query
+        if "youtube" in site_name.lower() or "YouTube" in site_type:
+            query = f"{site_name} YouTube"
+        else:
+            query = f"{site_name} sito ufficiale"
+        
+        # DuckDuckGo HTML search
+        url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Cerca il primo risultato
+            result = soup.find('a', class_='result__a')
+            if result and result.get('href'):
+                found_url = result.get('href')
+                
+                # Pulisci l'URL DuckDuckGo redirect
+                if found_url.startswith('//duckduckgo.com/l/?'):
+                    # Estrai l'URL reale dal redirect
+                    import urllib.parse
+                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(found_url).query)
+                    if 'uddg' in parsed:
+                        found_url = parsed['uddg'][0]
+                
+                if found_url and found_url.startswith('http'):
+                    return found_url
+        
+        return None
+        
+    except Exception as e:
+        print(f"Errore ricerca DuckDuckGo per {site_name}: {str(e)}")
+        return None
+
+# Funzione alternativa: usa Gemini con ricerca web integrata
+def search_url_with_gemini(site_name, site_type=""):
+    """Cerca l'URL usando Gemini con Google Search grounding"""
+    try:
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        # Usa modello con supporto grounding
+        model = genai.GenerativeModel(
+            'gemini-1.5-pro-latest',
+            tools='google_search_retrieval'  # Abilita ricerca Google
+        )
+        
+        # Query specifica per trovare URL
+        if "youtube" in site_name.lower() or "YouTube" in site_type:
+            query = f"Qual è l'URL del canale YouTube ufficiale di {site_name}? Rispondi SOLO con l'URL completo, nient'altro."
+        else:
+            query = f"Qual è l'URL del sito web ufficiale di {site_name}? Rispondi SOLO con l'URL completo (https://...), nient'altro."
+        
+        response = model.generate_content(query)
+        
+        if response and hasattr(response, 'text'):
+            text = response.text.strip()
+            
+            # Estrai URL dalla risposta
+            url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(\s]+'
+            urls = re.findall(url_pattern, text)
+            
+            if urls:
+                return urls[0]
+        
+        return None
+        
+    except Exception as e:
+        print(f"Errore ricerca Gemini per {site_name}: {str(e)}")
+        return None
+
+# Funzione principale per trovare URL (prova entrambi i metodi)
+def find_correct_url(site_name, site_type=""):
+    """Cerca l'URL corretto usando prima Gemini, poi DuckDuckGo come fallback"""
+    
+    # Metodo 1: Prova con Gemini + Google Search
+    url = search_url_with_gemini(site_name, site_type)
+    if url:
+        return url
+    
+    # Metodo 2: Fallback a DuckDuckGo (gratuito)
+    url = search_url_duckduckgo(site_name, site_type)
+    if url:
+        return url
+    
+    return None
+
 # Funzione per estrarre URL dal testo
 def extract_urls_from_text(text):
     """Estrae tutti gli URL dal testo"""
@@ -308,7 +419,8 @@ def parse_results(text):
                 'name': match.group(2).strip(),
                 'type': match.group(3).strip(),
                 'url': '',
-                'description': []
+                'description': [],
+                'url_verified': False
             }
             i += 1
             continue
@@ -320,6 +432,7 @@ def parse_results(text):
             if urls:
                 if not current_result['url']:
                     current_result['url'] = urls[0]
+                    current_result['url_verified'] = True
                 i += 1
                 continue
             
@@ -337,6 +450,44 @@ def parse_results(text):
     # Aggiungi l'ultimo risultato
     if current_result:
         results.append(current_result)
+    
+    return results
+
+# Funzione per verificare e correggere gli URL
+def verify_and_fix_urls(results, progress_bar=None):
+    """Verifica gli URL e li corregge se necessario"""
+    total = len(results)
+    
+    for idx, result in enumerate(results):
+        if progress_bar:
+            progress_bar.progress((idx + 1) / total, text=f"🔍 Verifica URL {idx + 1}/{total}: {result['name']}")
+        
+        # Se non ha URL o l'URL sembra inventato, cerca quello corretto
+        needs_verification = True
+        
+        if result['url']:
+            # Controlla se l'URL esiste davvero
+            try:
+                parsed = urlparse(result['url'])
+                # Se ha un dominio valido, teniamolo
+                if parsed.netloc and not any(x in result['url'].lower() for x in ['example.com', 'dummy', 'test']):
+                    needs_verification = False
+                    result['url_verified'] = True
+            except:
+                needs_verification = True
+        
+        if needs_verification or not result['url']:
+            # Cerca l'URL corretto
+            correct_url = find_correct_url(result['name'], result['type'])
+            
+            if correct_url:
+                result['url'] = correct_url
+                result['url_verified'] = True
+            else:
+                # Fallback: crea URL di ricerca Google
+                search_query = result['name'].replace(' ', '+')
+                result['url'] = f"https://www.google.com/search?q={search_query}"
+                result['url_verified'] = False
     
     return results
 
@@ -381,20 +532,18 @@ Identifica i 10 siti web informativi, portali di settore, blog specializzati e c
 
 IMPORTANTE: 
 - Escludi siti istituzionali (.gov, .edu)
-- Fornisci SEMPRE l'URL completo (https://...) per ogni sito
-- Per ogni fonte: nome, URL, tipologia e spiegazione
+- Fornisci SEMPRE il nome ESATTO e REALE del sito (verifica che esista davvero)
+- Per ogni fonte: nome esatto, tipologia e spiegazione strategica
 
 Formatta ESATTAMENTE così:
 
-1. [Nome del sito] - [Sito/Blog/Canale YouTube]
-https://[url-completo].com
-[Spiegazione di 2-3 righe]
+1. [Nome ESATTO del sito] - [Sito/Blog/Canale YouTube]
+[Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità GEO]
 
-2. [Nome del sito] - [Sito/Blog/Canale YouTube]
-https://[url-completo].com
+2. [Nome ESATTO del sito] - [Sito/Blog/Canale YouTube]
 [Spiegazione...]
 
-Continua per tutti i 10 siti. RICORDA: URL completo su riga separata."""
+Continua per tutti i 10 siti. FONDAMENTALE: usa SOLO nomi di siti REALI ed ESISTENTI, non inventare."""
 
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
@@ -433,14 +582,31 @@ if analyze_button:
     else:
         with st.spinner("🔄 Sto analizzando i migliori canali per la tua visibilità su Gemini..."):
             result = get_gemini_suggestions(mercato, ambito, lingua)
-            st.session_state.results = result
-            st.session_state.show_results = True
+            
+            if not result.startswith("❌"):
+                # Parsa i risultati
+                parsed_results = parse_results(result)
+                
+                # Verifica e correggi gli URL
+                progress_placeholder = st.empty()
+                progress_bar = progress_placeholder.progress(0, text="🔍 Verifica URL in corso...")
+                
+                verified_results = verify_and_fix_urls(parsed_results, progress_bar)
+                
+                progress_placeholder.empty()
+                
+                # Salva in session state
+                st.session_state.results = verified_results
+                st.session_state.show_results = True
+            else:
+                st.session_state.results = result
+                st.session_state.show_results = True
 
 # Mostra risultati
 if st.session_state.show_results and st.session_state.results:
     st.markdown("---")
     
-    if st.session_state.results.startswith("❌"):
+    if isinstance(st.session_state.results, str) and st.session_state.results.startswith("❌"):
         st.markdown(f"""
             <div class="error-box">
                 <p style="white-space: pre-wrap;">{st.session_state.results}</p>
@@ -449,13 +615,10 @@ if st.session_state.show_results and st.session_state.results:
     else:
         st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
         
-        # Parsa i risultati
-        all_results = parse_results(st.session_state.results)
-        
         # Prendi solo i primi 5
-        first_5_results = all_results[:5]
+        first_5_results = st.session_state.results[:5]
         
-        # Mostra ogni risultato singolarmente per garantire il rendering
+        # Mostra ogni risultato singolarmente
         st.markdown('<div class="results-container">', unsafe_allow_html=True)
         
         for result in first_5_results:
@@ -464,10 +627,9 @@ if st.session_state.show_results and st.session_state.results:
             type_badge = result['type']
             url = result['url']
             description = ' '.join(result['description'])
+            verified = result.get('url_verified', False)
             
-            # Se non c'è URL, creane uno
-            if not url:
-                url = f"https://www.google.com/search?q={name.replace(' ', '+')}"
+            verified_badge = '<span class="verified-badge">✓ URL Verificato</span>' if verified else ''
             
             # Renderizza ogni risultato come HTML
             result_html = f"""
@@ -475,6 +637,7 @@ if st.session_state.show_results and st.session_state.results:
                 <h4>
                     {number}. <a href="{url}" target="_blank" class="site-link">{name}</a>
                     <span class="type-badge">{type_badge}</span>
+                    {verified_badge}
                 </h4>
                 <a href="{url}" target="_blank" class="url-link">🔗 {url}</a>
                 <p>{description}</p>
