@@ -1,9 +1,8 @@
 import streamlit as st
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import anthropic
+import requests
+import json
 from datetime import datetime
-import re
-from urllib.parse import quote_plus
 
 # Configurazione pagina
 st.set_page_config(
@@ -118,6 +117,18 @@ st.markdown("""
         color: #c62828;
     }
     
+    /* Verified badge */
+    .verified-badge {
+        display: inline-block;
+        background: #4caf50;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
+    
     /* CTA Box */
     .cta-box {
         background: linear-gradient(135deg, #ff6b35 0%, #ff8e53 100%);
@@ -180,7 +191,7 @@ st.markdown("""
 # Info box
 st.markdown("""
     <div class="info-box">
-        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente, con link diretti per trovare contenuti pertinenti.</p>
+        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti dove dovresti proporre il tuo brand, con fonti verificate dal web.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -204,215 +215,161 @@ if 'show_results' not in st.session_state:
 # Button
 analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 
-# Funzione per pulire il testo da markdown
-def clean_markdown(text):
-    """Rimuove markdown e caratteri speciali dal testo"""
-    if not text:
-        return text
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    text = re.sub(r'__([^_]+)__', r'\1', text)
-    text = re.sub(r'_([^_]+)_', r'\1', text)
-    return text.strip()
-
-# Funzione per estrarre dominio dal nome sito
-def extract_domain_from_name(site_name):
-    """Estrae il dominio probabile dal nome del sito"""
-    site_name = site_name.lower().strip()
-    
-    # Mappatura comuni
-    domain_map = {
-        'ninja marketing': 'ninjamarketing.it',
-        'marketing journal': 'marketingjournal.it',
-        'digital4': 'digital4.biz',
-        'punto informatico': 'punto-informatico.it',
-        'web marketing tools': 'webmarketingtools.it',
-        'html.it': 'html.it',
-        'mrw.it': 'mrw.it',
-        'logistica management': 'logisticamanagement.it',
-        'supply chain': 'supplychainmagazine.it'
-    }
-    
-    # Cerca nella mappatura
-    for key, domain in domain_map.items():
-        if key in site_name:
-            return domain
-    
-    # Altrimenti prova a indovinare
-    words = site_name.replace('-', '').replace(' ', '').replace("'", '')
-    return f"{words}.it"
-
-# Funzione per creare URL di ricerca Google con site operator
-def create_site_search_url(site_name, mercato, ambito):
-    """Crea un URL di ricerca Google con operatore site: per trovare articoli pertinenti"""
-    domain = extract_domain_from_name(site_name)
-    
-    # Crea query: site:domain + keywords
-    query = f"site:{domain} {mercato} {ambito}"
-    
-    # URL codificato
-    search_url = f"https://www.google.com/search?q={quote_plus(query)}"
-    
-    return search_url
-
-# Funzione per parsare i risultati
-def parse_results(text):
-    """Parsa i risultati in una struttura dati"""
-    results = []
-    lines = text.split('\n')
-    current_result = None
-    
-    i = 0
-    while i < len(lines):
-        line = lines[i].strip()
-        
-        # Cerca pattern numero. Nome - Tipo
-        match = re.match(r'^(\d+)\.\s*\*?\*?(.+?)\*?\*?\s*-\s*(.+)$', line)
-        if match:
-            if current_result:
-                results.append(current_result)
-            
-            name = clean_markdown(match.group(2).strip())
-            type_text = clean_markdown(match.group(3).strip())
-            
-            current_result = {
-                'number': match.group(1),
-                'name': name,
-                'type': type_text,
-                'url': '',
-                'domain': extract_domain_from_name(name),
-                'description': []
-            }
-            i += 1
-            continue
-        
-        if current_result:
-            if not line:
-                i += 1
-                continue
-            
-            if not re.match(r'^\d+\.', line) and not line.startswith('http'):
-                cleaned_line = clean_markdown(line)
-                current_result['description'].append(cleaned_line)
-        
-        i += 1
-    
-    if current_result:
-        results.append(current_result)
-    
-    return results
-
-# Funzione per aggiungere URL di ricerca ai risultati
-def add_search_urls(results, mercato, ambito):
-    """Aggiunge URL di ricerca Google site-specific per ogni risultato"""
-    for result in results:
-        result['url'] = create_site_search_url(result['name'], mercato, ambito)
-    return results
-
-# Funzione per chiamare Gemini
-def get_gemini_suggestions(mercato, ambito, lingua):
+# Funzione per cercare con Brave Search
+def brave_search(query, count=20):
+    """Esegue ricerca con Brave Search API"""
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        api_key = st.secrets["BRAVE_API_KEY"]
         
-        models_to_try = [
-            'gemini-2.0-flash-exp',
-            'gemini-exp-1206',
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash-latest',
-        ]
-        
-        model = None
-        
-        for model_name in models_to_try:
-            try:
-                model = genai.GenerativeModel(model_name)
-                break
-            except:
-                continue
-        
-        if model is None:
-            return "❌ Errore: Nessun modello Gemini disponibile"
-        
-        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
-
-Un'azienda opera nel settore: {mercato}
-Ambito specifico: {ambito}
-Lingua: {lingua}
-
-Identifica i 10 siti web informativi, portali di settore, blog specializzati e canali YouTube più autorevoli dove questa azienda DEVE essere menzionata per massimizzare la propria visibilità su Gemini AI.
-
-IMPORTANTE:
-- Fornisci SOLO il nome ESATTO del sito italiano
-- Escludi siti istituzionali (.gov, .edu)
-- NON usare formattazione markdown (**, __, ecc.)
-- Siti REALI e famosi nel mercato italiano
-
-Formatta ESATTAMENTE così:
-
-1. Nome Esatto del Sito - Tipologia
-Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità su Gemini AI
-
-2. Nome Esatto del Sito - Tipologia
-Spiegazione...
-
-Continua per tutti i 10 siti."""
-
-        generation_config = genai.types.GenerationConfig(
-            temperature=0.7,
-            top_p=0.95,
-            max_output_tokens=3000,
-        )
-        
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        headers = {
+            "Accept": "application/json",
+            "X-Subscription-Token": api_key
         }
         
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings
+        params = {
+            "q": query,
+            "count": count,
+            "search_lang": "it",
+            "country": "IT"
+        }
+        
+        response = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            headers=headers,
+            params=params,
+            timeout=10
         )
         
-        if response and hasattr(response, 'text') and response.text:
-            return response.text
-        elif response and hasattr(response, 'parts') and response.parts:
-            return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
-        
-        return "❌ Errore: Nessuna risposta"
+        if response.status_code == 200:
+            data = response.json()
+            
+            # Estrai risultati web
+            results = []
+            if "web" in data and "results" in data["web"]:
+                for result in data["web"]["results"]:
+                    results.append({
+                        "title": result.get("title", ""),
+                        "url": result.get("url", ""),
+                        "description": result.get("description", ""),
+                    })
+            
+            return results
+        else:
+            st.error(f"Errore Brave Search: {response.status_code}")
+            return []
         
     except Exception as e:
-        return f"❌ Errore: {str(e)}"
+        st.error(f"Errore ricerca: {str(e)}")
+        return []
+
+# Funzione per analizzare risultati con Claude
+def analyze_with_claude(search_results, mercato, ambito, lingua):
+    """Usa Claude per analizzare i risultati di ricerca e identificare i top 10 siti"""
+    try:
+        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        
+        # Prepara contesto con i risultati di ricerca
+        search_context = "RISULTATI RICERCA WEB:\n\n"
+        for i, result in enumerate(search_results[:20], 1):
+            search_context += f"{i}. {result['title']}\n"
+            search_context += f"   URL: {result['url']}\n"
+            search_context += f"   Descrizione: {result['description']}\n\n"
+        
+        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale.
+
+CONTESTO:
+Un'azienda opera nel settore: {mercato}
+Ambito specifico: {ambito}
+Mercato: Italia
+Lingua: {lingua}
+
+COMPITO:
+Analizza i risultati di ricerca qui sotto e identifica i 10 siti web informativi, portali di settore, blog specializzati più autorevoli dove questa azienda DOVREBBE ESSERE MENZIONATA per massimizzare la visibilità su Gemini AI.
+
+{search_context}
+
+CRITERI:
+- Seleziona SOLO siti reali presenti nei risultati di ricerca
+- Priorità a siti informativi, portali di settore, blog specializzati
+- Escludi siti istituzionali (.gov, .edu) e marketplace
+- Siti autorevoli e rilevanti per il settore
+
+FORMATO OUTPUT (FONDAMENTALE):
+Rispondi SOLO con un JSON array, niente altro:
+
+[
+  {{
+    "number": 1,
+    "name": "Nome del Sito",
+    "type": "Blog/Portale/Sito Informativo",
+    "url": "https://url-esatto-dai-risultati.com",
+    "description": "Spiegazione di 2-3 righe sul perché essere menzionati qui aumenterebbe la visibilità su Gemini AI"
+  }},
+  ...
+]
+
+Rispondi SOLO con il JSON, nessun testo prima o dopo."""
+
+        message = client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=4000,
+            temperature=0.7,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        
+        response_text = message.content[0].text.strip()
+        
+        # Pulisci eventuali markdown
+        if response_text.startswith("```json"):
+            response_text = response_text.replace("```json", "").replace("```", "").strip()
+        elif response_text.startswith("```"):
+            response_text = response_text.replace("```", "").strip()
+        
+        # Parsa JSON
+        results = json.loads(response_text)
+        
+        return results
+        
+    except json.JSONDecodeError as e:
+        st.error(f"Errore parsing JSON: {str(e)}")
+        st.code(response_text)
+        return []
+    except Exception as e:
+        st.error(f"Errore Claude API: {str(e)}")
+        return []
 
 # Processo di analisi
 if analyze_button:
     if not mercato or not ambito or not lingua:
         st.error("⚠️ Per favore compila tutti i campi")
     else:
-        with st.spinner("🔄 Sto identificando i siti più strategici..."):
-            result = get_gemini_suggestions(mercato, ambito, lingua)
+        # Step 1: Ricerca con Brave
+        with st.spinner("🔍 Ricerca siti autorevoli nel settore..."):
+            query = f"siti informativi {mercato} {ambito} Italia blog portali settore"
+            search_results = brave_search(query, count=20)
             
-            if not result.startswith("❌"):
-                parsed_results = parse_results(result)
-                
-                if len(parsed_results) >= 5:
-                    # Aggiungi URL di ricerca per ogni sito
-                    results_with_urls = add_search_urls(parsed_results, mercato, ambito)
-                    
-                    st.session_state.results = results_with_urls
-                    st.session_state.show_results = True
-                else:
-                    st.error("⚠️ Non sono stati trovati abbastanza siti pertinenti.")
+            if not search_results:
+                st.error("❌ Nessun risultato dalla ricerca. Riprova.")
+                st.stop()
+        
+        # Step 2: Analisi con Claude
+        with st.spinner("🤖 Analisi dei risultati con Claude AI..."):
+            analyzed_results = analyze_with_claude(search_results, mercato, ambito, lingua)
+            
+            if analyzed_results and len(analyzed_results) >= 5:
+                st.session_state.results = analyzed_results
+                st.session_state.show_results = True
             else:
-                st.error(result)
+                st.error("⚠️ Non sono stati trovati abbastanza siti pertinenti. Prova con parametri diversi.")
 
 # Mostra risultati
 if st.session_state.show_results and st.session_state.results:
     st.markdown("---")
-    st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
+    st.markdown("### 📊 I Primi 5 Siti Dove Dovresti Essere Menzionato")
     
+    # Prendi solo i primi 5
     first_5_results = st.session_state.results[:5]
     
     for result in first_5_results:
@@ -420,21 +377,19 @@ if st.session_state.show_results and st.session_state.results:
         name = result['name']
         type_badge = result['type']
         url = result['url']
-        domain = result['domain']
-        description = ' '.join(result['description'])
+        description = result['description']
         
         with st.container():
             col1, col2 = st.columns([4, 1])
             
             with col1:
-                st.markdown(f"#### {number}. {name}")
+                st.markdown(f"#### {number}. [{name}]({url})")
             
             with col2:
                 st.markdown(f"`{type_badge}`")
+                st.markdown("✓ *Verificato*")
             
-            # Mostra dominio e link di ricerca
-            st.markdown(f"**Dominio:** `{domain}`")
-            st.markdown(f"🔍 [Cerca articoli su {name} relativi a {mercato} {ambito}]({url})")
+            st.markdown(f"🔗 **Vai al sito:** [{url}]({url})")
             st.markdown(description)
             st.markdown("---")
     
@@ -443,7 +398,7 @@ if st.session_state.show_results and st.session_state.results:
         <div class="cta-box">
             <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
             <h3>Vuoi scoprire gli altri 5 siti strategici?</h3>
-            <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
+            <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per essere menzionato e dominare Gemini AI nel tuo settore</p>
             <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
                     <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
