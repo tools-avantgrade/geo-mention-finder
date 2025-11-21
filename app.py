@@ -3,7 +3,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote_plus
 
 # Configurazione pagina
 st.set_page_config(
@@ -252,6 +252,18 @@ st.markdown("""
         font-weight: 500;
         margin-left: 0.5rem;
     }
+    
+    /* Article badge */
+    .article-badge {
+        display: inline-block;
+        background: #9c27b0;
+        color: white;
+        padding: 0.2rem 0.5rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-left: 0.5rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -266,7 +278,7 @@ st.markdown("""
 # Info box
 st.markdown("""
     <div class="info-box">
-        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente.</p>
+        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente, con link diretti ad articoli pertinenti.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -304,16 +316,15 @@ def clean_markdown(text):
     text = re.sub(r'_([^_]+)_', r'\1', text)
     return text.strip()
 
-# Funzione per cercare URL usando Gemini con Google Search
-def find_url_with_gemini(site_name, site_type=""):
-    """Cerca l'URL usando Gemini con Google Search grounding"""
+# Funzione per trovare articoli specifici sul sito usando Gemini con grounding
+def find_relevant_article(site_name, mercato, ambito, lingua):
+    """Trova un articolo specifico sul sito che parla del topic usando Gemini con Google Search"""
     try:
-        # Pulisci il nome del sito
         site_name = clean_markdown(site_name)
         
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # Prova con modelli che supportano grounding
+        # Modelli con grounding
         models_with_grounding = [
             'gemini-1.5-pro-latest',
             'gemini-1.5-flash-latest',
@@ -321,17 +332,16 @@ def find_url_with_gemini(site_name, site_type=""):
         
         for model_name in models_with_grounding:
             try:
-                # Crea modello con Google Search
                 model = genai.GenerativeModel(
                     model_name,
                     tools='google_search_retrieval'
                 )
                 
-                # Query specifica
-                if "youtube" in site_name.lower() or "YouTube" in site_type:
-                    query = f"URL del canale YouTube ufficiale di {site_name}. Rispondi SOLO con l'URL completo."
+                # Query per trovare articolo specifico
+                if "youtube" in site_name.lower():
+                    query = f"Trova video recenti su {site_name} YouTube che parlano di {mercato} {ambito}. Rispondi SOLO con l'URL completo del video più pertinente."
                 else:
-                    query = f"URL del sito web ufficiale di {site_name}. Rispondi SOLO con l'URL completo https://..."
+                    query = f"Trova articoli recenti su {site_name} che parlano di {mercato} {ambito} in {lingua}. Rispondi SOLO con l'URL completo dell'articolo più pertinente e rilevante."
                 
                 response = model.generate_content(query)
                 
@@ -342,19 +352,72 @@ def find_url_with_gemini(site_name, site_type=""):
                     url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(\s]+'
                     urls = re.findall(url_pattern, text)
                     
-                    if urls:
-                        return urls[0]
+                    if urls and len(urls) > 0:
+                        # Filtra URL che contengono il dominio del sito
+                        for url in urls:
+                            # Verifica che sia un URL valido e non una ricerca Google
+                            if 'google.com/search' not in url and 'youtube.com/results' not in url:
+                                return url, True  # True = articolo specifico trovato
                 
-                break  # Esci dal loop se il modello ha risposto
+                break
                 
             except Exception as e:
                 continue
         
-        return None
+        # Fallback: cerca homepage del sito
+        return find_site_homepage(site_name), False
         
     except Exception as e:
-        print(f"Errore ricerca URL per {site_name}: {str(e)}")
-        return None
+        print(f"Errore ricerca articolo per {site_name}: {str(e)}")
+        return find_site_homepage(site_name), False
+
+# Funzione per trovare homepage del sito
+def find_site_homepage(site_name):
+    """Trova l'homepage del sito usando Gemini"""
+    try:
+        site_name = clean_markdown(site_name)
+        
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        models_with_grounding = [
+            'gemini-1.5-pro-latest',
+            'gemini-1.5-flash-latest',
+        ]
+        
+        for model_name in models_with_grounding:
+            try:
+                model = genai.GenerativeModel(
+                    model_name,
+                    tools='google_search_retrieval'
+                )
+                
+                if "youtube" in site_name.lower():
+                    query = f"URL del canale YouTube ufficiale di {site_name}. Rispondi SOLO con l'URL."
+                else:
+                    query = f"URL del sito web ufficiale di {site_name}. Rispondi SOLO con l'URL https://..."
+                
+                response = model.generate_content(query)
+                
+                if response and hasattr(response, 'text'):
+                    text = response.text.strip()
+                    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(\s]+'
+                    urls = re.findall(url_pattern, text)
+                    
+                    if urls:
+                        return urls[0]
+                
+                break
+                
+            except Exception as e:
+                continue
+        
+        # Ultimo fallback: Google search
+        search_query = site_name.replace(' ', '+')
+        return f"https://www.google.com/search?q={search_query}"
+        
+    except Exception as e:
+        search_query = site_name.replace(' ', '+')
+        return f"https://www.google.com/search?q={search_query}"
 
 # Funzione per estrarre URL dal testo
 def extract_urls_from_text(text):
@@ -392,7 +455,8 @@ def parse_results(text):
                 'type': type_text,
                 'url': '',
                 'description': [],
-                'url_verified': False
+                'url_verified': False,
+                'is_article': False
             }
             i += 1
             continue
@@ -426,38 +490,33 @@ def parse_results(text):
     
     return results
 
-# Funzione per verificare e correggere gli URL
-def verify_and_fix_urls(results, progress_bar=None):
-    """Verifica gli URL e li corregge se necessario usando Gemini"""
+# Funzione per trovare articoli specifici per ogni risultato
+def find_relevant_articles(results, mercato, ambito, lingua, progress_bar=None):
+    """Trova articoli specifici per ogni sito"""
     total = len(results)
     
     for idx, result in enumerate(results):
         if progress_bar:
-            progress_bar.progress((idx + 1) / total, text=f"🔍 Verifica URL {idx + 1}/{total}: {result['name']}")
+            progress_bar.progress((idx + 1) / total, text=f"🔍 Ricerca articoli {idx + 1}/{total}: {result['name']}")
         
-        # Controlla se ha già un URL valido
-        has_valid_url = False
-        if result['url']:
-            try:
-                parsed = urlparse(result['url'])
-                if parsed.netloc and not any(x in result['url'].lower() for x in ['example.com', 'dummy', 'test']):
-                    has_valid_url = True
-                    result['url_verified'] = True
-            except:
-                pass
+        # Se ha già un URL dall'output di Gemini, controlla se è specifico
+        if result['url'] and 'google.com/search' not in result['url']:
+            result['url_verified'] = True
+            result['is_article'] = True
+            continue
         
-        # Se non ha URL valido, cerca con Gemini
-        if not has_valid_url:
-            correct_url = find_url_with_gemini(result['name'], result['type'])
-            
-            if correct_url:
-                result['url'] = correct_url
-                result['url_verified'] = True
-            else:
-                # Fallback: Google search
-                search_query = result['name'].replace(' ', '+')
-                result['url'] = f"https://www.google.com/search?q={search_query}"
-                result['url_verified'] = False
+        # Altrimenti cerca articolo specifico
+        article_url, is_article = find_relevant_article(
+            result['name'], 
+            mercato, 
+            ambito, 
+            lingua
+        )
+        
+        if article_url:
+            result['url'] = article_url
+            result['url_verified'] = True
+            result['is_article'] = is_article
     
     return results
 
@@ -558,11 +617,17 @@ if analyze_button:
                 # Parsa i risultati
                 parsed_results = parse_results(result)
                 
-                # Verifica e correggi gli URL con Gemini
+                # Trova articoli specifici per ogni sito
                 progress_placeholder = st.empty()
-                progress_bar = progress_placeholder.progress(0, text="🔍 Verifica URL con Gemini...")
+                progress_bar = progress_placeholder.progress(0, text="🔍 Ricerca articoli specifici...")
                 
-                verified_results = verify_and_fix_urls(parsed_results, progress_bar)
+                verified_results = find_relevant_articles(
+                    parsed_results, 
+                    mercato, 
+                    ambito, 
+                    lingua,
+                    progress_bar
+                )
                 
                 progress_placeholder.empty()
                 
@@ -597,6 +662,7 @@ if st.session_state.show_results and st.session_state.results:
             url = result['url']
             description = ' '.join(result['description'])
             verified = result.get('url_verified', False)
+            is_article = result.get('is_article', False)
             
             # Container per ogni risultato
             with st.container():
@@ -607,7 +673,9 @@ if st.session_state.show_results and st.session_state.results:
                 
                 with col2:
                     st.markdown(f"`{type_badge}`")
-                    if verified:
+                    if is_article:
+                        st.markdown("📄 *Articolo*")
+                    elif verified:
                         st.markdown("✓ *Verificato*")
                 
                 st.markdown(f"🔗 [{url}]({url})")
