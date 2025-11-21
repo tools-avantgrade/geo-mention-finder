@@ -3,7 +3,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 import re
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import urlparse
 
 # Configurazione pagina
 st.set_page_config(
@@ -90,73 +90,32 @@ st.markdown("""
         box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
     }
     
-    /* Results container */
-    .results-container {
-        background: white;
-        border-radius: 12px;
-        padding: 2rem;
-        margin-top: 2rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    
-    .result-item {
-        background: #f8f9fa;
-        border-left: 4px solid #667eea;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        border-radius: 8px;
-    }
-    
-    .result-item h4 {
-        color: #667eea;
-        margin-top: 0;
-        margin-bottom: 0.5rem;
-        font-size: 1.2rem;
-        font-weight: 600;
-    }
-    
-    .result-item .site-link {
-        color: #667eea;
-        text-decoration: none;
-        font-weight: 600;
-        transition: all 0.3s ease;
-        border-bottom: 2px solid transparent;
-    }
-    
-    .result-item .site-link:hover {
-        color: #764ba2;
-        border-bottom: 2px solid #764ba2;
-    }
-    
-    .result-item .type-badge {
-        display: inline-block;
+    /* Info box */
+    .info-box {
         background: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+    }
+    
+    .info-box p {
+        margin: 0;
         color: #1976d2;
-        padding: 0.25rem 0.75rem;
-        border-radius: 12px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        margin-left: 0.5rem;
     }
     
-    .result-item .url-link {
-        display: inline-block;
-        color: #667eea;
-        text-decoration: none;
-        font-size: 0.9rem;
-        margin-top: 0.5rem;
-        margin-bottom: 0.5rem;
-        word-break: break-all;
+    /* Error box */
+    .error-box {
+        background: #ffebee;
+        border-left: 4px solid #f44336;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
     }
     
-    .result-item .url-link:hover {
-        text-decoration: underline;
-    }
-    
-    .result-item p {
-        margin: 0.75rem 0 0 0;
-        color: #555;
-        line-height: 1.7;
+    .error-box p {
+        margin: 0;
+        color: #c62828;
     }
     
     /* CTA Box */
@@ -207,63 +166,6 @@ st.markdown("""
         width: 20px;
         height: 20px;
     }
-    
-    /* Loading spinner */
-    .stSpinner > div {
-        border-top-color: #667eea !important;
-    }
-    
-    /* Info box */
-    .info-box {
-        background: #e3f2fd;
-        border-left: 4px solid #2196f3;
-        padding: 1rem;
-        border-radius: 8px;
-        margin-bottom: 1.5rem;
-    }
-    
-    .info-box p {
-        margin: 0;
-        color: #1976d2;
-    }
-    
-    /* Error box */
-    .error-box {
-        background: #ffebee;
-        border-left: 4px solid #f44336;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    
-    .error-box p {
-        margin: 0;
-        color: #c62828;
-    }
-    
-    /* Verified badge */
-    .verified-badge {
-        display: inline-block;
-        background: #4caf50;
-        color: white;
-        padding: 0.2rem 0.5rem;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        font-weight: 500;
-        margin-left: 0.5rem;
-    }
-    
-    /* Article badge */
-    .article-badge {
-        display: inline-block;
-        background: #9c27b0;
-        color: white;
-        padding: 0.2rem 0.5rem;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        font-weight: 500;
-        margin-left: 0.5rem;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -307,117 +209,11 @@ def clean_markdown(text):
     """Rimuove markdown e caratteri speciali dal testo"""
     if not text:
         return text
-    # Rimuovi ** (bold)
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    # Rimuovi * (italic)
     text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    # Rimuovi altri markdown comuni
     text = re.sub(r'__([^_]+)__', r'\1', text)
     text = re.sub(r'_([^_]+)_', r'\1', text)
     return text.strip()
-
-# Funzione per trovare articoli specifici sul sito usando Gemini con grounding
-def find_relevant_article(site_name, mercato, ambito, lingua):
-    """Trova un articolo specifico sul sito che parla del topic usando Gemini con Google Search"""
-    try:
-        site_name = clean_markdown(site_name)
-        
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        
-        # Modelli con grounding
-        models_with_grounding = [
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash-latest',
-        ]
-        
-        for model_name in models_with_grounding:
-            try:
-                model = genai.GenerativeModel(
-                    model_name,
-                    tools='google_search_retrieval'
-                )
-                
-                # Query per trovare articolo specifico
-                if "youtube" in site_name.lower():
-                    query = f"Trova video recenti su {site_name} YouTube che parlano di {mercato} {ambito}. Rispondi SOLO con l'URL completo del video più pertinente."
-                else:
-                    query = f"Trova articoli recenti su {site_name} che parlano di {mercato} {ambito} in {lingua}. Rispondi SOLO con l'URL completo dell'articolo più pertinente e rilevante."
-                
-                response = model.generate_content(query)
-                
-                if response and hasattr(response, 'text'):
-                    text = response.text.strip()
-                    
-                    # Estrai URL
-                    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(\s]+'
-                    urls = re.findall(url_pattern, text)
-                    
-                    if urls and len(urls) > 0:
-                        # Filtra URL che contengono il dominio del sito
-                        for url in urls:
-                            # Verifica che sia un URL valido e non una ricerca Google
-                            if 'google.com/search' not in url and 'youtube.com/results' not in url:
-                                return url, True  # True = articolo specifico trovato
-                
-                break
-                
-            except Exception as e:
-                continue
-        
-        # Fallback: cerca homepage del sito
-        return find_site_homepage(site_name), False
-        
-    except Exception as e:
-        print(f"Errore ricerca articolo per {site_name}: {str(e)}")
-        return find_site_homepage(site_name), False
-
-# Funzione per trovare homepage del sito
-def find_site_homepage(site_name):
-    """Trova l'homepage del sito usando Gemini"""
-    try:
-        site_name = clean_markdown(site_name)
-        
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        
-        models_with_grounding = [
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash-latest',
-        ]
-        
-        for model_name in models_with_grounding:
-            try:
-                model = genai.GenerativeModel(
-                    model_name,
-                    tools='google_search_retrieval'
-                )
-                
-                if "youtube" in site_name.lower():
-                    query = f"URL del canale YouTube ufficiale di {site_name}. Rispondi SOLO con l'URL."
-                else:
-                    query = f"URL del sito web ufficiale di {site_name}. Rispondi SOLO con l'URL https://..."
-                
-                response = model.generate_content(query)
-                
-                if response and hasattr(response, 'text'):
-                    text = response.text.strip()
-                    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]\)\(\s]+'
-                    urls = re.findall(url_pattern, text)
-                    
-                    if urls:
-                        return urls[0]
-                
-                break
-                
-            except Exception as e:
-                continue
-        
-        # Ultimo fallback: Google search
-        search_query = site_name.replace(' ', '+')
-        return f"https://www.google.com/search?q={search_query}"
-        
-    except Exception as e:
-        search_query = site_name.replace(' ', '+')
-        return f"https://www.google.com/search?q={search_query}"
 
 # Funzione per estrarre URL dal testo
 def extract_urls_from_text(text):
@@ -426,9 +222,24 @@ def extract_urls_from_text(text):
     urls = re.findall(url_pattern, text)
     return urls
 
-# Funzione per parsare i risultati
+# Funzione per validare URL
+def is_valid_url(url):
+    """Controlla se un URL è valido e non è una ricerca Google"""
+    if not url:
+        return False
+    if 'google.com/search' in url.lower():
+        return False
+    if 'youtube.com/results' in url.lower():
+        return False
+    try:
+        parsed = urlparse(url)
+        return bool(parsed.netloc and parsed.scheme in ['http', 'https'])
+    except:
+        return False
+
+# Funzione per parsare i risultati con URL
 def parse_results(text):
-    """Parsa i risultati in una struttura dati"""
+    """Parsa i risultati che includono già gli URL degli articoli"""
     results = []
     lines = text.split('\n')
     current_result = None
@@ -437,26 +248,22 @@ def parse_results(text):
     while i < len(lines):
         line = lines[i].strip()
         
-        # Cerca pattern numero. Nome - Tipo (supporta markdown)
+        # Cerca pattern: numero. Nome - Tipo
         match = re.match(r'^(\d+)\.\s*\*?\*?(.+?)\*?\*?\s*-\s*(.+)$', line)
         if match:
-            # Salva il risultato precedente se esiste
+            # Salva il risultato precedente
             if current_result:
                 results.append(current_result)
             
-            # Pulisci il nome e tipo da markdown
             name = clean_markdown(match.group(2).strip())
             type_text = clean_markdown(match.group(3).strip())
             
-            # Crea nuovo risultato
             current_result = {
                 'number': match.group(1),
                 'name': name,
                 'type': type_text,
                 'url': '',
-                'description': [],
-                'url_verified': False,
-                'is_article': False
+                'description': []
             }
             i += 1
             continue
@@ -465,10 +272,12 @@ def parse_results(text):
         if current_result:
             # Cerca URL nella linea
             urls = extract_urls_from_text(line)
-            if urls:
-                if not current_result['url']:
-                    current_result['url'] = urls[0]
-                    current_result['url_verified'] = True
+            if urls and not current_result['url']:
+                # Prendi il primo URL valido
+                for url in urls:
+                    if is_valid_url(url):
+                        current_result['url'] = url
+                        break
                 i += 1
                 continue
             
@@ -477,8 +286,8 @@ def parse_results(text):
                 i += 1
                 continue
             
-            # Aggiungi alla descrizione (pulendo il markdown)
-            if not re.match(r'^\d+\.', line):
+            # Aggiungi alla descrizione
+            if not re.match(r'^\d+\.', line) and not line.startswith('http'):
                 cleaned_line = clean_markdown(line)
                 current_result['description'].append(cleaned_line)
         
@@ -490,117 +299,86 @@ def parse_results(text):
     
     return results
 
-# Funzione per trovare articoli specifici per ogni risultato
-def find_relevant_articles(results, mercato, ambito, lingua, progress_bar=None):
-    """Trova articoli specifici per ogni sito"""
-    total = len(results)
-    
-    for idx, result in enumerate(results):
-        if progress_bar:
-            progress_bar.progress((idx + 1) / total, text=f"🔍 Ricerca articoli {idx + 1}/{total}: {result['name']}")
-        
-        # Se ha già un URL dall'output di Gemini, controlla se è specifico
-        if result['url'] and 'google.com/search' not in result['url']:
-            result['url_verified'] = True
-            result['is_article'] = True
-            continue
-        
-        # Altrimenti cerca articolo specifico
-        article_url, is_article = find_relevant_article(
-            result['name'], 
-            mercato, 
-            ambito, 
-            lingua
-        )
-        
-        if article_url:
-            result['url'] = article_url
-            result['url_verified'] = True
-            result['is_article'] = is_article
-    
-    return results
-
-# Funzione per chiamare Gemini
-def get_gemini_suggestions(mercato, ambito, lingua):
+# Funzione per chiamare Gemini con ricerca grounding
+def get_gemini_suggestions_with_urls(mercato, ambito, lingua):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        models_to_try = [
-            'gemini-2.0-flash-exp',
-            'gemini-exp-1206',
-            'gemini-exp-1121',
-            'gemini-1.5-pro-latest',
-            'gemini-1.5-flash-latest',
-            'gemini-1.5-pro-002',
-            'gemini-1.5-flash-002',
+        # Prova prima modelli con grounding (per avere URL reali)
+        models_with_grounding = [
+            ('gemini-1.5-pro-latest', True),
+            ('gemini-1.5-flash-latest', True),
+            ('gemini-2.0-flash-exp', False),
+            ('gemini-exp-1206', False),
         ]
         
-        model = None
-        errors = []
-        
-        for model_name in models_to_try:
+        for model_name, has_grounding in models_with_grounding:
             try:
-                model = genai.GenerativeModel(model_name)
-                break
-            except Exception as e:
-                errors.append(f"{model_name}: {str(e)}")
-                continue
-        
-        if model is None:
-            error_details = "\n".join(errors[:3])
-            return f"❌ Errore: Nessun modello Gemini disponibile.\n\nDettagli:\n{error_details}"
-        
-        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
+                # Crea modello
+                if has_grounding:
+                    model = genai.GenerativeModel(
+                        model_name,
+                        tools='google_search_retrieval'
+                    )
+                else:
+                    model = genai.GenerativeModel(model_name)
+                
+                prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale.
 
 Un'azienda opera nel settore: {mercato}
 Ambito specifico: {ambito}
-Mercato di riferimento: Italia
 Lingua: {lingua}
 
-Identifica i 10 siti web informativi, portali di settore, blog specializzati e canali YouTube più autorevoli e rilevanti dove questa azienda DEVE essere menzionata per massimizzare la propria visibilità su Gemini AI.
+Identifica i 10 siti web informativi, portali, blog e canali YouTube più autorevoli dove questa azienda DEVE essere menzionata per massimizzare la visibilità su Gemini AI.
 
 IMPORTANTE: 
+- Per OGNI sito, cerca e fornisci l'URL di UN ARTICOLO SPECIFICO recente che parla di {mercato} {ambito}
+- Se è un canale YouTube, fornisci l'URL di un video specifico pertinente
 - Escludi siti istituzionali (.gov, .edu)
-- Fornisci SEMPRE il nome ESATTO e REALE del sito (verifica che esista davvero)
-- Per ogni fonte: nome esatto, tipologia e spiegazione strategica
-- NON usare formattazione markdown (**, __, ecc.)
+- NON usare formattazione markdown
 
 Formatta ESATTAMENTE così:
 
 1. Nome del Sito - Tipologia
-Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità GEO
+https://url-articolo-specifico-completo.com/articolo
+Spiegazione di 2-3 righe sul perché questo articolo/contenuto è strategico
 
-2. Nome del Sito - Tipologia
+2. Nome del Sito - Tipologia  
+https://url-articolo-specifico-completo.com/articolo
 Spiegazione...
 
-Continua per tutti i 10 siti. FONDAMENTALE: usa SOLO nomi di siti REALI ed ESISTENTI, non inventare."""
+Continua per tutti i 10 siti. FONDAMENTALE: fornisci URL COMPLETI di articoli/video SPECIFICI, non homepage."""
 
-        generation_config = genai.types.GenerationConfig(
-            temperature=0.7,
-            top_p=0.95,
-            top_k=40,
-            max_output_tokens=3000,
-        )
+                generation_config = genai.types.GenerationConfig(
+                    temperature=0.7,
+                    top_p=0.95,
+                    top_k=40,
+                    max_output_tokens=3000,
+                )
+                
+                safety_settings = {
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
+                
+                response = model.generate_content(
+                    prompt,
+                    generation_config=generation_config,
+                    safety_settings=safety_settings
+                )
+                
+                if response and hasattr(response, 'text') and response.text:
+                    return response.text
+                elif response and hasattr(response, 'parts') and response.parts:
+                    return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
+                
+            except Exception as e:
+                print(f"Errore con {model_name}: {str(e)}")
+                continue
         
-        safety_settings = {
-            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-        }
-        
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings
-        )
-        
-        if response and hasattr(response, 'text') and response.text:
-            return response.text
-        elif response and hasattr(response, 'parts') and response.parts:
-            return ''.join(part.text for part in response.parts if hasattr(part, 'text'))
-        else:
-            return "❌ Errore: Nessuna risposta dal modello Gemini"
+        return "❌ Errore: Nessun modello Gemini disponibile"
         
     except Exception as e:
         return f"❌ Errore: {str(e)}"
@@ -610,30 +388,20 @@ if analyze_button:
     if not mercato or not ambito or not lingua:
         st.error("⚠️ Per favore compila tutti i campi")
     else:
-        with st.spinner("🔄 Sto analizzando i migliori canali per la tua visibilità su Gemini..."):
-            result = get_gemini_suggestions(mercato, ambito, lingua)
+        with st.spinner("🔄 Sto cercando i migliori articoli e contenuti per la tua visibilità su Gemini..."):
+            result = get_gemini_suggestions_with_urls(mercato, ambito, lingua)
             
             if not result.startswith("❌"):
-                # Parsa i risultati
                 parsed_results = parse_results(result)
                 
-                # Trova articoli specifici per ogni sito
-                progress_placeholder = st.empty()
-                progress_bar = progress_placeholder.progress(0, text="🔍 Ricerca articoli specifici...")
+                # Filtra solo risultati con URL validi
+                valid_results = [r for r in parsed_results if is_valid_url(r.get('url', ''))]
                 
-                verified_results = find_relevant_articles(
-                    parsed_results, 
-                    mercato, 
-                    ambito, 
-                    lingua,
-                    progress_bar
-                )
-                
-                progress_placeholder.empty()
-                
-                # Salva in session state
-                st.session_state.results = verified_results
-                st.session_state.show_results = True
+                if len(valid_results) >= 5:
+                    st.session_state.results = valid_results
+                    st.session_state.show_results = True
+                else:
+                    st.error("⚠️ Non sono stati trovati abbastanza articoli pertinenti. Prova con parametri diversi.")
             else:
                 st.session_state.results = result
                 st.session_state.show_results = True
@@ -649,7 +417,7 @@ if st.session_state.show_results and st.session_state.results:
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.markdown("### 📊 I Primi 5 Siti Strategici Identificati")
+        st.markdown("### 📊 I Primi 5 Articoli Strategici Identificati")
         
         # Prendi solo i primi 5
         first_5_results = st.session_state.results[:5]
@@ -661,10 +429,7 @@ if st.session_state.show_results and st.session_state.results:
             type_badge = result['type']
             url = result['url']
             description = ' '.join(result['description'])
-            verified = result.get('url_verified', False)
-            is_article = result.get('is_article', False)
             
-            # Container per ogni risultato
             with st.container():
                 col1, col2 = st.columns([4, 1])
                 
@@ -673,10 +438,7 @@ if st.session_state.show_results and st.session_state.results:
                 
                 with col2:
                     st.markdown(f"`{type_badge}`")
-                    if is_article:
-                        st.markdown("📄 *Articolo*")
-                    elif verified:
-                        st.markdown("✓ *Verificato*")
+                    st.markdown("📄 *Articolo*")
                 
                 st.markdown(f"🔗 [{url}]({url})")
                 st.markdown(description)
@@ -686,8 +448,8 @@ if st.session_state.show_results and st.session_state.results:
         st.markdown("""
             <div class="cta-box">
                 <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
-                <h3>Vuoi scoprire gli altri 5 siti e canali strategici?</h3>
-                <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
+                <h3>Vuoi scoprire gli altri 5 articoli strategici?</h3>
+                <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 articoli identificati e una strategia personalizzata per dominare Gemini AI nel tuo settore</p>
                 <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
                         <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
