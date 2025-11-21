@@ -3,9 +3,7 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from datetime import datetime
 import re
-from urllib.parse import urlparse
-import requests
-from bs4 import BeautifulSoup
+from urllib.parse import quote_plus
 
 # Configurazione pagina
 st.set_page_config(
@@ -182,7 +180,7 @@ st.markdown("""
 # Info box
 st.markdown("""
     <div class="info-box">
-        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente, con link diretti ad articoli pertinenti.</p>
+        <p><strong>💡 Come funziona:</strong> Inserisci il tuo settore, ambito e lingua per scoprire i 10 principali siti informativi e canali dove dovresti essere presente, con link diretti per trovare contenuti pertinenti.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -217,84 +215,47 @@ def clean_markdown(text):
     text = re.sub(r'_([^_]+)_', r'\1', text)
     return text.strip()
 
-# Funzione per ottenere il dominio da un nome sito
-def extract_domain_from_sitename(site_name):
-    """Cerca il dominio del sito usando ricerca web simulata"""
-    try:
-        # Prova a cercare con requests
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        # Cerca su Google
-        query = f"{site_name} sito ufficiale"
-        google_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-        
-        response = requests.get(google_url, headers=headers, timeout=5)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Cerca il primo link nei risultati
-            for link in soup.find_all('a'):
-                href = link.get('href', '')
-                if '/url?q=' in href:
-                    url = href.split('/url?q=')[1].split('&')[0]
-                    parsed = urlparse(url)
-                    if parsed.netloc and 'google' not in parsed.netloc:
-                        return parsed.netloc
-        
-        return None
-    except:
-        return None
+# Funzione per estrarre dominio dal nome sito
+def extract_domain_from_name(site_name):
+    """Estrae il dominio probabile dal nome del sito"""
+    site_name = site_name.lower().strip()
+    
+    # Mappatura comuni
+    domain_map = {
+        'ninja marketing': 'ninjamarketing.it',
+        'marketing journal': 'marketingjournal.it',
+        'digital4': 'digital4.biz',
+        'punto informatico': 'punto-informatico.it',
+        'web marketing tools': 'webmarketingtools.it',
+        'html.it': 'html.it',
+        'mrw.it': 'mrw.it',
+        'logistica management': 'logisticamanagement.it',
+        'supply chain': 'supplychainmagazine.it'
+    }
+    
+    # Cerca nella mappatura
+    for key, domain in domain_map.items():
+        if key in site_name:
+            return domain
+    
+    # Altrimenti prova a indovinare
+    words = site_name.replace('-', '').replace(' ', '').replace("'", '')
+    return f"{words}.it"
 
-# Funzione per cercare articolo specifico su un sito
-def search_article_on_site(site_name, domain, mercato, ambito):
-    """Cerca un articolo specifico su un sito usando ricerca web REALE"""
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-        
-        # Costruisci query con site operator
-        if domain:
-            query = f"site:{domain} {mercato} {ambito}"
-        else:
-            query = f"{site_name} {mercato} {ambito}"
-        
-        google_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
-        
-        response = requests.get(google_url, headers=headers, timeout=5)
-        
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Cerca il primo risultato reale
-            for link in soup.find_all('a'):
-                href = link.get('href', '')
-                if '/url?q=' in href:
-                    url = href.split('/url?q=')[1].split('&')[0]
-                    
-                    # Verifica che sia un URL valido
-                    if url.startswith('http') and 'google.com' not in url:
-                        # Verifica che il dominio corrisponda se disponibile
-                        if domain:
-                            if domain in url:
-                                return url
-                        else:
-                            return url
-        
-        # Fallback: homepage del sito
-        if domain:
-            return f"https://{domain}"
-        
-        return None
-        
-    except Exception as e:
-        print(f"Errore ricerca articolo per {site_name}: {str(e)}")
-        return None
+# Funzione per creare URL di ricerca Google con site operator
+def create_site_search_url(site_name, mercato, ambito):
+    """Crea un URL di ricerca Google con operatore site: per trovare articoli pertinenti"""
+    domain = extract_domain_from_name(site_name)
+    
+    # Crea query: site:domain + keywords
+    query = f"site:{domain} {mercato} {ambito}"
+    
+    # URL codificato
+    search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+    
+    return search_url
 
-# Funzione per parsare i risultati (solo nomi siti)
+# Funzione per parsare i risultati
 def parse_results(text):
     """Parsa i risultati in una struttura dati"""
     results = []
@@ -319,6 +280,7 @@ def parse_results(text):
                 'name': name,
                 'type': type_text,
                 'url': '',
+                'domain': extract_domain_from_name(name),
                 'description': []
             }
             i += 1
@@ -340,30 +302,14 @@ def parse_results(text):
     
     return results
 
-# Funzione per trovare articoli REALI per ogni sito
-def find_real_articles(results, mercato, ambito, progress_bar=None):
-    """Trova articoli REALI usando ricerca web"""
-    total = len(results)
-    
-    for idx, result in enumerate(results):
-        if progress_bar:
-            progress_bar.progress((idx + 1) / total, text=f"🔍 Ricerca articoli reali {idx + 1}/{total}: {result['name']}")
-        
-        # Prima trova il dominio del sito
-        domain = extract_domain_from_sitename(result['name'])
-        
-        # Poi cerca un articolo specifico
-        article_url = search_article_on_site(result['name'], domain, mercato, ambito)
-        
-        if article_url:
-            result['url'] = article_url
-        else:
-            # Ultimo fallback
-            result['url'] = f"https://www.google.com/search?q={result['name'].replace(' ', '+')}"
-    
+# Funzione per aggiungere URL di ricerca ai risultati
+def add_search_urls(results, mercato, ambito):
+    """Aggiunge URL di ricerca Google site-specific per ogni risultato"""
+    for result in results:
+        result['url'] = create_site_search_url(result['name'], mercato, ambito)
     return results
 
-# Funzione per chiamare Gemini (solo per nomi siti)
+# Funzione per chiamare Gemini
 def get_gemini_suggestions(mercato, ambito, lingua):
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -387,29 +333,29 @@ def get_gemini_suggestions(mercato, ambito, lingua):
         if model is None:
             return "❌ Errore: Nessun modello Gemini disponibile"
         
-        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale.
+        prompt = f"""Sei un esperto di GEO (Generative Engine Optimization) e visibilità digitale in Italia.
 
 Un'azienda opera nel settore: {mercato}
 Ambito specifico: {ambito}
 Lingua: {lingua}
 
-Identifica i 10 siti web informativi, portali, blog e canali YouTube più autorevoli dove questa azienda DEVE essere menzionata per massimizzare la visibilità su Gemini AI.
+Identifica i 10 siti web informativi, portali di settore, blog specializzati e canali YouTube più autorevoli dove questa azienda DEVE essere menzionata per massimizzare la propria visibilità su Gemini AI.
 
 IMPORTANTE:
-- Fornisci SOLO il nome del sito e la tipologia
-- NON inventare URL
+- Fornisci SOLO il nome ESATTO del sito italiano
 - Escludi siti istituzionali (.gov, .edu)
-- NON usare formattazione markdown
+- NON usare formattazione markdown (**, __, ecc.)
+- Siti REALI e famosi nel mercato italiano
 
 Formatta ESATTAMENTE così:
 
 1. Nome Esatto del Sito - Tipologia
-Spiegazione di 2-3 righe sul perché questo sito è strategico
+Spiegazione di 2-3 righe sul perché questo sito è strategico per la visibilità su Gemini AI
 
 2. Nome Esatto del Sito - Tipologia
 Spiegazione...
 
-Continua per tutti i 10 siti. USA SOLO nomi di siti REALI."""
+Continua per tutti i 10 siti."""
 
         generation_config = genai.types.GenerationConfig(
             temperature=0.7,
@@ -452,15 +398,10 @@ if analyze_button:
                 parsed_results = parse_results(result)
                 
                 if len(parsed_results) >= 5:
-                    # Ora cerca articoli REALI per ogni sito
-                    progress_placeholder = st.empty()
-                    progress_bar = progress_placeholder.progress(0, text="🔍 Ricerca articoli reali...")
+                    # Aggiungi URL di ricerca per ogni sito
+                    results_with_urls = add_search_urls(parsed_results, mercato, ambito)
                     
-                    verified_results = find_real_articles(parsed_results, mercato, ambito, progress_bar)
-                    
-                    progress_placeholder.empty()
-                    
-                    st.session_state.results = verified_results
+                    st.session_state.results = results_with_urls
                     st.session_state.show_results = True
                 else:
                     st.error("⚠️ Non sono stati trovati abbastanza siti pertinenti.")
@@ -479,20 +420,21 @@ if st.session_state.show_results and st.session_state.results:
         name = result['name']
         type_badge = result['type']
         url = result['url']
+        domain = result['domain']
         description = ' '.join(result['description'])
         
         with st.container():
             col1, col2 = st.columns([4, 1])
             
             with col1:
-                st.markdown(f"#### {number}. [{name}]({url})")
+                st.markdown(f"#### {number}. {name}")
             
             with col2:
                 st.markdown(f"`{type_badge}`")
-                if 'google.com/search' not in url:
-                    st.markdown("📄 *Articolo*")
             
-            st.markdown(f"🔗 [{url}]({url})")
+            # Mostra dominio e link di ricerca
+            st.markdown(f"**Dominio:** `{domain}`")
+            st.markdown(f"🔍 [Cerca articoli su {name} relativi a {mercato} {ambito}]({url})")
             st.markdown(description)
             st.markdown("---")
     
