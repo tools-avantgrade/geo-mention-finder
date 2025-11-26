@@ -290,8 +290,9 @@ Analizza i risultati di ricerca qui sotto e identifica i 10 siti web informativi
 
 CRITERI:
 - Seleziona SOLO siti reali presenti nei risultati di ricerca
-- Priorità a siti informativi, portali di settore, blog specializzati
+- Priorità a siti informativi, portali di settore, blog specializzati, riviste online
 - Escludi siti istituzionali (.gov, .edu) e marketplace
+- Escludi AGENZIE (agenzie marketing, agenzie comunicazione, agenzie pubblicitarie, web agency)
 - Siti autorevoli e rilevanti per il settore
 
 FORMATO OUTPUT (FONDAMENTALE):
