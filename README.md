@@ -1,6 +1,6 @@
 # 🎯 GEO Mention Finder
 
-Strumento di lead generation sviluppato da Avantgrade per identificare i siti web e canali più rilevanti dove essere menzionati per migliorare la visibilità su Gemini AI.
+Strumento di lead generation sviluppato da Avantgrade per identificare i siti web e canali più rilevanti dove essere menzionati per migliorare la visibilità sulle chat AI.
 
 ## 🚀 Setup
 
@@ -13,7 +13,8 @@ pip install -r requirements.txt
 3. Configura i secrets di Streamlit:
 Crea il file `.streamlit/secrets.toml` e aggiungi:
 ```toml
-GEMINI_API_KEY = "your-api-key-here"
+ANTHROPIC_API_KEY = "your-anthropic-api-key-here"
+BRAVE_API_KEY = "your-brave-api-key-here"
 ```
 
 4. Avvia l'applicazione:
@@ -23,17 +24,24 @@ streamlit run app.py
 
 ## 🔑 Configurazione API Key
 
-Per ottenere la tua API key di Gemini:
-1. Vai su [Google AI Studio](https://makersuite.google.com/app/apikey)
+Per ottenere le tue API keys:
+
+**Anthropic Claude API:**
+1. Vai su [Anthropic Console](https://console.anthropic.com/)
 2. Crea una nuova API key
-3. Aggiungila ai secrets di Streamlit
+3. Aggiungila ai secrets di Streamlit come `ANTHROPIC_API_KEY`
+
+**Brave Search API:**
+1. Vai su [Brave Search API](https://brave.com/search/api/)
+2. Registrati e ottieni una API key
+3. Aggiungila ai secrets di Streamlit come `BRAVE_API_KEY`
 
 ## 📦 Deploy su Streamlit Cloud
 
 1. Pusha il codice su GitHub
 2. Vai su [share.streamlit.io](https://share.streamlit.io)
 3. Connetti il repository
-4. Aggiungi il secret `GEMINI_API_KEY` nelle impostazioni dell'app
+4. Aggiungi i secrets `ANTHROPIC_API_KEY` e `BRAVE_API_KEY` nelle impostazioni dell'app
 
 ## 💼 Utilizzo
 
@@ -47,7 +55,8 @@ Per ottenere la tua API key di Gemini:
 ## 🎨 Features
 
 - ✅ Interfaccia professionale con branding Avantgrade
-- ✅ Integrazione con Gemini AI (modello Flash per costi ottimizzati)
+- ✅ Integrazione con Claude AI (modello Sonnet 4 per analisi avanzate)
+- ✅ Ricerca web con Brave Search API
 - ✅ Lead generation integrato con CTA
 - ✅ Responsive design
 - ✅ UTM tracking per analytics
