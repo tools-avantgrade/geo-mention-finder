@@ -284,16 +284,17 @@ Mercato: Italia
 Lingua: {lingua}
 
 COMPITO:
-Analizza i risultati di ricerca qui sotto e identifica i 10 siti web informativi, portali di settore, blog specializzati più autorevoli dove questa azienda DOVREBBE ESSERE MENZIONATA per massimizzare la visibilità su Gemini AI.
+Analizza i risultati di ricerca qui sotto e identifica i 10 BLOG, PORTALI DI SETTORE o RIVISTE ONLINE specifiche più autorevoli dove questa azienda DOVREBBE ESSERE MENZIONATA per massimizzare la visibilità su Gemini AI.
 
 {search_context}
 
-CRITERI:
+CRITERI FONDAMENTALI:
 - Seleziona SOLO siti reali presenti nei risultati di ricerca
-- Priorità a siti informativi, portali di settore, blog specializzati, riviste online
-- Escludi siti istituzionali (.gov, .edu) e marketplace
-- Escludi AGENZIE (agenzie marketing, agenzie comunicazione, agenzie pubblicitarie, web agency)
-- Siti autorevoli e rilevanti per il settore
+- Scegli SOLO blog, portali o riviste specifiche che pubblicano contenuti originali sul settore
+- ESCLUDI assolutamente siti che sono "liste di blog" o "aggregatori" (es: "migliori blog di...", "top 10 siti di...", "blog più letti...")
+- ESCLUDI siti istituzionali (.gov, .edu) e marketplace
+- ESCLUDI AGENZIE (agenzie marketing, agenzie comunicazione, agenzie pubblicitarie, web agency)
+- Priorità a fonti che creano contenuti editoriali originali e sono autorevoli nel settore
 
 FORMATO OUTPUT (FONDAMENTALE):
 Rispondi SOLO con un JSON array, niente altro:
@@ -302,7 +303,7 @@ Rispondi SOLO con un JSON array, niente altro:
   {{
     "number": 1,
     "name": "Nome del Sito",
-    "type": "Blog/Portale/Sito Informativo",
+    "type": "Blog/Portale/Rivista Online",
     "url": "https://url-esatto-dai-risultati.com",
     "description": "Spiegazione di 2-3 righe sul perché essere menzionati qui aumenterebbe la visibilità su Gemini AI"
   }},
@@ -348,15 +349,15 @@ if analyze_button:
     else:
         # Step 1: Ricerca con Brave
         with st.spinner("🔍 Ricerca siti autorevoli nel settore..."):
-            query = f"siti informativi {mercato} {ambito} Italia blog portali settore"
+            query = f"{mercato} {ambito} blog portale rivista online Italia -\"migliori blog\" -\"top blog\" -\"lista\""
             search_results = brave_search(query, count=20)
             
             if not search_results:
                 st.error("❌ Nessun risultato dalla ricerca. Riprova.")
                 st.stop()
         
-        # Step 2: Analisi con Claude
-        with st.spinner("🤖 Analisi dei risultati con Claude AI..."):
+        # Step 2: Analisi con AI
+        with st.spinner("🤖 Analisi dei risultati con intelligenza artificiale..."):
             analyzed_results = analyze_with_claude(search_results, mercato, ambito, lingua)
             
             if analyzed_results and len(analyzed_results) >= 5:
