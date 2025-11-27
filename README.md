@@ -1,6 +1,6 @@
 # 🎯 GEO Mention Finder
 
-Strumento di lead generation sviluppato da Avantgrade per identificare i siti web e canali più rilevanti dove essere menzionati per migliorare la visibilità su Gemini AI.
+Strumento di lead generation sviluppato da Avantgrade per identificare i siti web e canali più rilevanti dove essere menzionati per migliorare la visibilità sulle chat AI.
 
 ## 🚀 Setup
 

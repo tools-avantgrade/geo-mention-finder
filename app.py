@@ -184,7 +184,7 @@ st.markdown("""
 st.markdown("""
     <div class="header-container">
         <h1>🎯 Site Mention Analyzer</h1>
-        <p>Scopri dove il tuo brand deve essere menzionato per massimizzare la visibilità su Gemini AI</p>
+        <p>Scopri dove il tuo brand deve essere menzionato per massimizzare la visibilità sulle chat AI</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -284,7 +284,7 @@ Mercato: Italia
 Lingua: {lingua}
 
 COMPITO:
-Analizza i risultati di ricerca qui sotto e identifica i 10 BLOG, PORTALI DI SETTORE o RIVISTE ONLINE specifiche più autorevoli dove questa azienda DOVREBBE ESSERE MENZIONATA per massimizzare la visibilità su Gemini AI.
+Analizza i risultati di ricerca qui sotto e identifica i 10 BLOG, PORTALI DI SETTORE o RIVISTE ONLINE specifiche più autorevoli dove questa azienda DOVREBBE ESSERE MENZIONATA per massimizzare la visibilità sulle chat AI.
 
 {search_context}
 
@@ -305,7 +305,7 @@ Rispondi SOLO con un JSON array, niente altro:
     "name": "Nome del Sito",
     "type": "Blog/Portale/Rivista Online",
     "url": "https://url-esatto-dai-risultati.com",
-    "description": "Spiegazione di 2-3 righe sul perché essere menzionati qui aumenterebbe la visibilità su Gemini AI"
+    "description": "Spiegazione di 2-3 righe sul perché essere menzionati qui aumenterebbe la visibilità sulle chat AI"
   }},
   ...
 ]
@@ -359,17 +359,26 @@ if analyze_button:
         # Step 2: Analisi con AI
         with st.spinner("🤖 Analisi dei risultati con intelligenza artificiale..."):
             analyzed_results = analyze_with_claude(search_results, mercato, ambito, lingua)
-            
+
             if analyzed_results and len(analyzed_results) >= 5:
                 st.session_state.results = analyzed_results
                 st.session_state.show_results = True
+                st.session_state.mercato = mercato
+                st.session_state.lingua = lingua
+                st.session_state.ambito = ambito
             else:
                 st.error("⚠️ Non sono stati trovati abbastanza siti pertinenti. Prova con parametri diversi.")
 
 # Mostra risultati
 if st.session_state.show_results and st.session_state.results:
     st.markdown("---")
-    st.markdown("### 📊 I Primi 5 Siti Dove Dovresti Essere Menzionato")
+
+    # Costruisci introduzione personalizzata
+    mercato_saved = st.session_state.get('mercato', 'il tuo mercato')
+    lingua_saved = st.session_state.get('lingua', 'la tua lingua')
+    ambito_saved = st.session_state.get('ambito', 'il tuo ambito')
+
+    st.markdown(f"### 📊 I Primi 5 Siti Dove Dovresti Essere Posizionato se la Tua Azienda Lavora nel Mercato {mercato_saved} in Lingua {lingua_saved} e {ambito_saved}")
     
     # Prendi solo i primi 5
     first_5_results = st.session_state.results[:5]
@@ -400,7 +409,7 @@ if st.session_state.show_results and st.session_state.results:
         <div class="cta-box">
             <img src="https://www.avantgrade.com/wp-content/themes/avantgrade/assets/img/logo-colored.svg" alt="Avantgrade Logo">
             <h3>Vuoi scoprire gli altri 5 siti strategici?</h3>
-            <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per essere menzionato e dominare Gemini AI nel tuo settore</p>
+            <p style="color: white; opacity: 0.95; margin-bottom: 1.5rem;">Contatta Avantgrade per ottenere l'analisi completa con tutti i 10 siti identificati e una strategia personalizzata per essere menzionato e dominare le chat AI nel tuo settore</p>
             <a class="btn-orange" target="_blank" href="https://www.avantgrade.com/schedule-a-call?utm_source=streamlit&utm_medium=geo_tool&utm_campaign=mention_analyzer">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 23.001 27.343" fill="currentColor">
                     <path d="m6.606 26.641-.339-.521A7.816 7.816 0 0 0 7.49 14l-.106-.1L1.49 8.282A4.827 4.827 0 0 1 0 4.8v-.516A4.217 4.217 0 0 1 2.235.528 4.217 4.217 0 0 1 6.6.7l14.451 9.383a4.278 4.278 0 0 1 0 7.175L6.607 26.641Zm.97-13.419.238.225a8.451 8.451 0 0 1 1.127 10.937l11.774-7.647a3.656 3.656 0 0 0 0-6.132L6.265 1.221a3.6 3.6 0 0 0-3.733-.147 3.6 3.6 0 0 0-1.91 3.21V4.8a4.2 4.2 0 0 0 1.3 3.029Z"/>
