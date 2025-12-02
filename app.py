@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Configurazione pagina
 st.set_page_config(
-    page_title="Site Mention Analyzer | Avantgrade",
+    page_title="brand mention analyzer | Avantgrade",
     page_icon="🎯",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -183,8 +183,8 @@ st.markdown("""
 # Header
 st.markdown("""
     <div class="header-container">
-        <h1>🎯 Site Mention Analyzer</h1>
-        <p>Scopri dove il tuo brand deve essere menzionato per massimizzare la visibilità sulle chat AI</p>
+        <h1>🎯 brand mention analyzer</h1>
+        <p>Scopri i siti web in cui il tuo brand dovrebbe essere menzionato per aumentare l'autorevolezza dai motori di ricerca basati su AI</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -426,6 +426,6 @@ if st.session_state.show_results and st.session_state.results:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center; color: #888; padding: 2rem 0;">
-        <p>Powered by <strong>Avantgrade.com</strong> | GEO & AI Search Optimization Experts</p>
+        <p>Powered by <strong>Avantgrade.com</strong></p>
     </div>
 """, unsafe_allow_html=True)
