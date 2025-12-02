@@ -1,4 +1,4 @@
-# 🎯 brand mention analyzer
+# 🎯 Brand Mention Analyzer
 
 Scopri i siti web in cui il tuo brand dovrebbe essere menzionato per aumentare l'autorevolezza dai motori di ricerca basati su AI.
 

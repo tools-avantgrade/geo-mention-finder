@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Configurazione pagina
 st.set_page_config(
-    page_title="brand mention analyzer | Avantgrade",
+    page_title="Brand Mention Analyzer | Avantgrade",
     page_icon="🎯",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -183,7 +183,7 @@ st.markdown("""
 # Header
 st.markdown("""
     <div class="header-container">
-        <h1>🎯 brand mention analyzer</h1>
+        <h1>🎯 Brand Mention Analyzer</h1>
         <p>Scopri i siti web in cui il tuo brand dovrebbe essere menzionato per aumentare l'autorevolezza dai motori di ricerca basati su AI</p>
     </div>
 """, unsafe_allow_html=True)
@@ -202,9 +202,9 @@ with col1:
     mercato = st.text_input("🏢 Mercato/Settore", placeholder="es. Logistica, Baie di carico")
 
 with col2:
-    lingua = st.text_input("🌍 Lingua", placeholder="es. Italiano, Inglese")
+    lingua = st.selectbox("🌍 Lingua", options=["Italiano", "Inglese"])
 
-ambito = st.text_input("🎯 Ambito specifico", placeholder="es. Soluzioni per magazzini, Equipment industriale")
+ambito = st.text_input("🎯 Topic", placeholder="es. Soluzioni per magazzini, Equipment industriale")
 
 # Inizializza session state
 if 'results' not in st.session_state:
