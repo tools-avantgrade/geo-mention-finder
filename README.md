@@ -1,6 +1,6 @@
-# 🎯 GEO Mention Finder
+# 🎯 brand mention analyzer
 
-Strumento di lead generation sviluppato da Avantgrade per identificare i siti web e canali più rilevanti dove essere menzionati per migliorare la visibilità sulle chat AI.
+Scopri i siti web in cui il tuo brand dovrebbe essere menzionato per aumentare l'autorevolezza dai motori di ricerca basati su AI.
 
 ## 🚀 Setup
 
