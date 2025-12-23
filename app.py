@@ -2,6 +2,7 @@ import streamlit as st
 import anthropic
 import requests
 import json
+import os
 from datetime import datetime
 
 # Configurazione pagina
@@ -218,7 +219,7 @@ analyze_button = st.button("🔍 Analizza ora", use_container_width=True)
 def brave_search(query, count=20):
     """Esegue ricerca con Brave Search API"""
     try:
-        api_key = st.secrets["BRAVE_API_KEY"]
+        api_key = os.environ.get("BRAVE_API_KEY") or st.secrets.get("BRAVE_API_KEY", "")
         
         headers = {
             "Accept": "application/json",
@@ -265,7 +266,7 @@ def brave_search(query, count=20):
 def analyze_with_claude(search_results, mercato, ambito, lingua):
     """Usa Claude per analizzare i risultati di ricerca e identificare i top 10 siti"""
     try:
-        client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY", ""))
         
         # Prepara contesto con i risultati di ricerca
         search_context = "RISULTATI RICERCA WEB:\n\n"
